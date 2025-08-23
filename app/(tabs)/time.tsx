@@ -1,632 +1,368 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  TouchableOpacity, 
-  StyleSheet, 
-  SafeAreaView, 
-  ScrollView,
-  Alert,
-  Modal,
-  TextInput
-} from 'react-native';
-import { useSelector, useDispatch } from 'react-redux';
-import { RootState } from '@/store/store';
-import { clockIn, clockOut, setLocationPermission } from '@/store/slices/timeTrackingSlice';
-import { Clock, MapPin, Play, Square, CreditCard as Edit3, Calendar, TrendingUp } from 'lucide-react-native';
+import { View, Text, StyleSheet, Alert, Platform, Linking } from 'react-native';
+import { Clock, MapPin, Navigation } from 'lucide-react-native';
+import { useState, useEffect, useCallback } from 'react';
 import * as Location from 'expo-location';
-import Constants from 'expo-constants';
+import { useTheme } from '@/contexts/ThemeContext';
+import { useLanguage } from '@/contexts/LanguageContext';
+import ForceTouchable from '@/components/ForceTouchable';
 
 export default function TimeTracking() {
-  const { user } = useSelector((state: RootState) => state.auth);
-  const { entries, currentEntry, locationPermission } = useSelector((state: RootState) => state.timeTracking);
-  const dispatch = useDispatch();
-  
-  const [location, setLocation] = useState<Location.LocationObject | null>(null);
-  const [editModalVisible, setEditModalVisible] = useState(false);
-  const [selectedEntry, setSelectedEntry] = useState<any>(null);
-  const [editClockIn, setEditClockIn] = useState('');
-  const [editClockOut, setEditClockOut] = useState('');
-  const [editNotes, setEditNotes] = useState('');
+  const { theme } = useTheme();
+  const { t } = useLanguage();
+  const [isClockedIn, setIsClockedIn] = useState(false);
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [location, setLocation] = useState<{
+    latitude: number;
+    longitude: number;
+    address?: string;
+  } | null>(null);
+  const [locationPermission, setLocationPermission] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const styles = createStyles(theme);
+
+  // Use useCallback to prevent unnecessary re-renders
+  const checkLocationPermission = useCallback(async () => {
+    try {
+      const { status } = await Location.getForegroundPermissionsAsync();
+      const hasPermission = status === 'granted';
+      setLocationPermission(hasPermission);
+      
+      if (hasPermission) {
+        await getCurrentLocation();
+      }
+    } catch (error) {
+      console.error('Error checking location permission:', error);
+    }
+  }, []);
 
   useEffect(() => {
-    requestLocationPermission();
-  }, []);
+    checkLocationPermission();
+    
+    // Simple timer without heavy operations
+    const interval = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 60000); // Update every minute instead of every second
+
+    return () => clearInterval(interval);
+  }, [checkLocationPermission]);
+
+  const getCurrentLocation = async () => {
+    if (isLoading) return;
+    
+    try {
+      setIsLoading(true);
+      const currentLocation = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+        // timeout is not a valid option in Expo Location - removed
+      });
+      
+      const { latitude, longitude } = currentLocation.coords;
+      
+      // Get address (optional)
+      let address = 'Location acquired';
+      try {
+        const addressResponse = await Location.reverseGeocodeAsync({
+          latitude,
+          longitude,
+        });
+        
+        if (addressResponse[0]) {
+          address = `${addressResponse[0].street || ''} ${addressResponse[0].city || ''}`.trim();
+          if (addressResponse[0].name) {
+            address = addressResponse[0].name;
+          }
+        }
+      } catch (addressError) {
+        console.log('Address lookup failed, using coordinates');
+        address = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+      }
+      
+      setLocation({
+        latitude,
+        longitude,
+        address,
+      });
+    } catch (error) {
+      console.error('Error getting location:', error);
+      // Set a basic location object if GPS fails but we have permission
+      if (locationPermission) {
+        setLocation({
+          latitude: 0,
+          longitude: 0,
+          address: 'Location unavailable - try again'
+        });
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const requestLocationPermission = async () => {
     try {
+      setIsLoading(true);
       const { status } = await Location.requestForegroundPermissionsAsync();
-      dispatch(setLocationPermission(status === 'granted'));
+      const hasPermission = status === 'granted';
+      setLocationPermission(hasPermission);
       
-      if (status === 'granted') {
-        const currentLocation = await Location.getCurrentPositionAsync({});
-        setLocation(currentLocation);
+      if (hasPermission) {
+        await getCurrentLocation();
+      } else {
+        // Use a simple console log instead of Alert to prevent potential reloads
+        console.log('Location permission denied');
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to get location permission');
+      console.error('Error requesting location permission:', error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const handleClockIn = async () => {
-    if (!locationPermission) {
-      Alert.alert('Location Required', 'Please enable location services to clock in');
-      return;
-    }
-
-    try {
-      const currentLocation = await Location.getCurrentPositionAsync({});
-      const address = await Location.reverseGeocodeAsync({
-        latitude: currentLocation.coords.latitude,
-        longitude: currentLocation.coords.longitude,
-      });
-
-      const newEntry = {
-        id: Date.now().toString(),
-        staffId: user!.id,
-        staffName: user!.name,
-        date: new Date().toISOString().split('T')[0],
-        clockIn: new Date().toISOString(),
-        location: {
-          latitude: currentLocation.coords.latitude,
-          longitude: currentLocation.coords.longitude,
-          address: address[0] ? `${address[0].street}, ${address[0].city}` : 'Unknown location',
-        },
-        status: 'active' as const,
-      };
-
-      dispatch(clockIn(newEntry));
-      Alert.alert('Success', 'Clocked in successfully!');
-    } catch (error) {
-      Alert.alert('Error', 'Failed to clock in. Please try again.');
+  const handleClockToggle = async () => {
+    if (isClockedIn) {
+      // Simple state change without heavy operations
+      setIsClockedIn(false);
+      console.log('Clocked out at:', new Date().toISOString());
+    } else {
+      if (!locationPermission) {
+        await requestLocationPermission();
+        if (!locationPermission) return;
+      }
+      
+      await getCurrentLocation();
+      setIsClockedIn(true);
+      console.log('Clocked in at:', new Date().toISOString());
     }
   };
 
-  const handleClockOut = () => {
-    if (!currentEntry) return;
-
-    const clockOutTime = new Date().toISOString();
-    const totalHours = (new Date(clockOutTime).getTime() - new Date(currentEntry.clockIn).getTime()) / (1000 * 60 * 60);
-
-    dispatch(clockOut({
-      id: currentEntry.id,
-      clockOut: clockOutTime,
-      totalHours: Math.round(totalHours * 100) / 100,
-    }));
-
-    Alert.alert('Success', 'Clocked out successfully!');
+  const formatTime = (date: Date) => {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  const openEditModal = (entry: any) => {
-    setSelectedEntry(entry);
-    setEditClockIn(new Date(entry.clockIn).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }));
-    setEditClockOut(entry.clockOut ? new Date(entry.clockOut).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '');
-    setEditNotes(entry.notes || '');
-    setEditModalVisible(true);
+  const formatDate = (date: Date) => {
+    return date.toLocaleDateString([], { 
+      weekday: 'long', 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
   };
-
-  const saveEdit = () => {
-    if (!selectedEntry) return;
-
-    // Here you would normally validate and save the edited times
-    Alert.alert('Success', 'Time entry updated successfully!');
-    setEditModalVisible(false);
-  };
-
-  const todayEntries = entries.filter(entry => 
-    entry.date === new Date().toISOString().split('T')[0] &&
-    (user?.role === 'admin' || entry.staffId === user?.id)
-  );
-
-  const weekEntries = entries.filter(entry => {
-    const entryDate = new Date(entry.date);
-    const weekStart = new Date();
-    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate() + 6);
-    
-    return entryDate >= weekStart && entryDate <= weekEnd &&
-           (user?.role === 'admin' || entry.staffId === user?.id);
-  });
-
-  const totalWeekHours = weekEntries.reduce((total, entry) => total + (entry.totalHours || 0), 0);
 
   return (
     <View style={styles.container}>
-      <View style={styles.statusBarSpacer} />
       <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Clock size={24} color="#2563EB" />
-          <Text style={styles.headerTitle}>Time Tracking</Text>
-        </View>
+        <Text style={styles.title}>{t('timeTracking') || 'Time Tracking'}</Text>
+        <Text style={styles.date}>{formatDate(currentTime)}</Text>
       </View>
 
-      <ScrollView style={styles.content}>
-        {/* Current Status */}
-        <View style={styles.statusSection}>
-          {currentEntry ? (
-            <View style={styles.activeCard}>
-              <View style={styles.activeHeader}>
-                <View style={styles.activeIndicator} />
-                <Text style={styles.activeTitle}>Currently Working</Text>
-              </View>
-              <Text style={styles.activeTime}>
-                Started at {new Date(currentEntry.clockIn).toLocaleTimeString('en-GB', {
-                  hour: '2-digit',
-                  minute: '2-digit'
-                })}
-              </Text>
-              <View style={styles.activeLocation}>
-                <MapPin size={16} color="#059669" />
-                <Text style={styles.activeLocationText}>{currentEntry.location.address}</Text>
-              </View>
-              <TouchableOpacity
-                style={styles.clockOutButton}
-                onPress={handleClockOut}
-              >
-                <Square size={20} color="#FFFFFF" />
-                <Text style={styles.clockOutButtonText}>Clock Out</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <View style={styles.inactiveCard}>
-              <Text style={styles.inactiveTitle}>Ready to Start</Text>
-              <Text style={styles.inactiveSubtitle}>
-                Clock in when you arrive at your workplace
-              </Text>
-              <TouchableOpacity
-                style={styles.clockInButton}
-                onPress={handleClockIn}
-              >
-                <Play size={20} color="#FFFFFF" />
-                <Text style={styles.clockInButtonText}>Clock In</Text>
-              </TouchableOpacity>
-            </View>
-          )}
+      <View style={styles.content}>
+        <View style={styles.timeDisplay}>
+          <Clock size={48} color={isClockedIn ? '#10B981' : '#6B7280'} />
+          <Text style={styles.currentTime}>{formatTime(currentTime)}</Text>
+          <Text style={styles.status}>
+            {isClockedIn ? (t('clockedIn') || 'Clocked In') : (t('clockedOut') || 'Clocked Out')}
+          </Text>
         </View>
 
-        {/* Week Summary */}
-        <View style={styles.summarySection}>
-          <Text style={styles.sectionTitle}>This Week</Text>
-          <View style={styles.summaryGrid}>
-            <View style={styles.summaryCard}>
-              <TrendingUp size={24} color="#2563EB" />
-              <Text style={styles.summaryValue}>{totalWeekHours.toFixed(1)}h</Text>
-              <Text style={styles.summaryLabel}>Total Hours</Text>
-            </View>
-            <View style={styles.summaryCard}>
-              <Calendar size={24} color="#059669" />
-              <Text style={styles.summaryValue}>{weekEntries.length}</Text>
-              <Text style={styles.summaryLabel}>Days Worked</Text>
-            </View>
-            <View style={styles.summaryCard}>
-              <Clock size={24} color="#EA580C" />
-              <Text style={styles.summaryValue}>
-                {weekEntries.length > 0 ? (totalWeekHours / weekEntries.length).toFixed(1) : '0'}h
+        <ForceTouchable
+          style={[styles.clockButton, isClockedIn ? styles.clockOutButton : styles.clockInButton]}
+          onPress={handleClockToggle}
+          disabled={isLoading}
+        >
+          <Text style={styles.clockButtonText}>
+            {isLoading ? '...' : 
+             isClockedIn ? (t('clockOut') || 'Clock Out') : (t('clockIn') || 'Clock In')}
+          </Text>
+        </ForceTouchable>
+
+        <View style={styles.locationCard}>
+          <MapPin size={20} color="#6B7280" />
+          <View style={styles.locationInfo}>
+            <Text style={styles.locationTitle}>{t('currentLocation') || 'Current Location'}</Text>
+            <Text style={styles.locationText}>
+              {isLoading ? 'Getting location...' : location?.address || 'Location not available'}
+            </Text>
+            {location && location.latitude !== 0 && (
+              <Text style={styles.locationCoords}>
+                {location.latitude.toFixed(6)}, {location.longitude.toFixed(6)}
               </Text>
-              <Text style={styles.summaryLabel}>Avg/Day</Text>
-            </View>
+            )}
           </View>
+          <View style={[styles.statusDot, { 
+            backgroundColor: locationPermission ? '#10B981' : '#EF4444' 
+          }]} />
         </View>
 
-        {/* Today's Entries */}
-        <View style={styles.entriesSection}>
-          <Text style={styles.sectionTitle}>Today's Activity</Text>
-          {todayEntries.map((entry) => (
-            <View key={`entry-${entry.id}`} style={styles.entryCard}>
-              <View style={styles.entryHeader}>
-                <View style={styles.entryInfo}>
-                  <Text style={styles.entryTime}>
-                    {new Date(entry.clockIn).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-                    {entry.clockOut && ` - ${new Date(entry.clockOut).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`}
-                  </Text>
-                  <View style={styles.entryLocation}>
-                    <MapPin size={12} color="#6B7280" />
-                    <Text style={styles.entryLocationText}>{entry.location.address}</Text>
-                  </View>
-                </View>
-                <View style={styles.entryActions}>
-                  {entry.totalHours && (
-                    <Text style={styles.entryHours}>{entry.totalHours.toFixed(1)}h</Text>
-                  )}
-                </View>
-              </View>
-              {entry.notes && (
-                <Text style={styles.entryNotes}>{entry.notes}</Text>
-              )}
-              <View style={[styles.entryStatus, { backgroundColor: 
-                entry.status === 'active' ? '#059669' : 
-                entry.status === 'edited' ? '#EA580C' : '#6B7280' 
-              }]}>
-                <Text style={styles.entryStatusText}>
-                  {entry.status === 'active' ? 'ACTIVE' : 
-                   entry.status === 'edited' ? 'EDITED' : 'COMPLETED'}
-                </Text>
-              </View>
-            </View>
-          ))}
+        {!locationPermission && (
+          <ForceTouchable
+            style={[styles.locationButton, isLoading && styles.disabledButton]}
+            onPress={requestLocationPermission}
+            disabled={isLoading}
+          >
+            <Navigation size={20} color="#FFFFFF" />
+            <Text style={styles.locationButtonText}>
+              {isLoading ? 'Requesting...' : (t('enableLocation') || 'Enable Location')}
+            </Text>
+          </ForceTouchable>
+        )}
 
-          {todayEntries.length === 0 && (
-            <View style={styles.noEntries}>
-              <Clock size={48} color="#E5E7EB" />
-              <Text style={styles.noEntriesTitle}>No time entries today</Text>
-              <Text style={styles.noEntriesText}>
-                Clock in when you start your shift
-              </Text>
-            </View>
-          )}
-        </View>
-      </ScrollView>
-
-      {/* Edit Modal */}
-      <Modal
-        visible={editModalVisible}
-        animationType="slide"
-        presentationStyle="pageSheet"
-      >
-        <SafeAreaView style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <TouchableOpacity onPress={() => setEditModalVisible(false)}>
-              <Text style={styles.modalCancel}>Cancel</Text>
-            </TouchableOpacity>
-            <Text style={styles.modalTitle}>Edit Time Entry</Text>
-            <TouchableOpacity onPress={saveEdit}>
-              <Text style={styles.modalSave}>Save</Text>
-            </TouchableOpacity>
+        {isClockedIn && (
+          <View style={styles.sessionInfo}>
+            <Text style={styles.sessionText}>
+              {t('clockedInAt') || 'Clocked in at'} {formatTime(new Date())}
+            </Text>
           </View>
-
-          <View style={styles.modalContent}>
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Clock In Time</Text>
-              <TextInput
-                style={styles.timeInput}
-                value={editClockIn}
-                onChangeText={setEditClockIn}
-                placeholder="09:00"
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Clock Out Time</Text>
-              <TextInput
-                style={styles.timeInput}
-                value={editClockOut}
-                onChangeText={setEditClockOut}
-                placeholder="17:00"
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Notes</Text>
-              <TextInput
-                style={styles.notesInput}
-                value={editNotes}
-                onChangeText={setEditNotes}
-                placeholder="Add any notes about this time entry..."
-                multiline
-                numberOfLines={3}
-              />
-            </View>
-          </View>
-        </SafeAreaView>
-      </Modal>
+        )}
+      </View>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
-  },
-  statusBarSpacer: {
-    height: Constants.statusBarHeight,
-    backgroundColor: '#FFFFFF',
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 20,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontFamily: 'Inter-SemiBold',
-    color: '#1F2937',
-    marginLeft: 12,
-  },
-  content: {
-    flex: 1,
-  },
-  statusSection: {
-    margin: 24,
-    marginBottom: 16,
-  },
-  activeCard: {
-    padding: 24,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    borderLeftWidth: 4,
-    borderLeftColor: '#059669',
-  },
-  activeHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  activeIndicator: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#059669',
-    marginRight: 8,
-  },
-  activeTitle: {
-    fontSize: 18,
-    fontFamily: 'Inter-SemiBold',
-    color: '#059669',
-  },
-  activeTime: {
-    fontSize: 16,
-    fontFamily: 'Inter-Regular',
-    color: '#374151',
-    marginBottom: 8,
-  },
-  activeLocation: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  activeLocationText: {
-    fontSize: 14,
-    fontFamily: 'Inter-Regular',
-    color: '#6B7280',
-    marginLeft: 4,
-  },
-  clockOutButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#DC2626',
-    borderRadius: 12,
-    paddingVertical: 12,
-    gap: 8,
-  },
-  clockOutButtonText: {
-    fontSize: 16,
-    fontFamily: 'Inter-SemiBold',
-    color: '#FFFFFF',
-  },
-  inactiveCard: {
-    padding: 24,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    alignItems: 'center',
-  },
-  inactiveTitle: {
-    fontSize: 18,
-    fontFamily: 'Inter-SemiBold',
-    color: '#1F2937',
-    marginBottom: 8,
-  },
-  inactiveSubtitle: {
-    fontSize: 14,
-    fontFamily: 'Inter-Regular',
-    color: '#6B7280',
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  clockInButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#059669',
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    gap: 8,
-  },
-  clockInButtonText: {
-    fontSize: 16,
-    fontFamily: 'Inter-SemiBold',
-    color: '#FFFFFF',
-  },
-  summarySection: {
-    paddingHorizontal: 24,
-    marginBottom: 24,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontFamily: 'Inter-SemiBold',
-    color: '#1F2937',
-    marginBottom: 16,
-  },
-  summaryGrid: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  summaryCard: {
-    flex: 1,
-    padding: 16,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  summaryValue: {
-    fontSize: 20,
-    fontFamily: 'Inter-Bold',
-    color: '#1F2937',
-    marginTop: 8,
-    marginBottom: 4,
-  },
-  summaryLabel: {
-    fontSize: 12,
-    fontFamily: 'Inter-Regular',
-    color: '#6B7280',
-    textAlign: 'center',
-  },
-  entriesSection: {
-    paddingHorizontal: 24,
-    marginBottom: 32,
-  },
-  entryCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    position: 'relative',
-  },
-  entryHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-  },
-  entryInfo: {
-    flex: 1,
-  },
-  entryStaff: {
-    fontSize: 14,
-    fontFamily: 'Inter-SemiBold',
-    color: '#1F2937',
-    marginBottom: 4,
-  },
-  entryTime: {
-    fontSize: 16,
-    fontFamily: 'Inter-SemiBold',
-    color: '#374151',
-    marginBottom: 8,
-  },
-  entryLocation: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  entryLocationText: {
-    fontSize: 12,
-    fontFamily: 'Inter-Regular',
-    color: '#6B7280',
-    marginLeft: 4,
-  },
-  entryActions: {
-    alignItems: 'flex-end',
-  },
-  entryHours: {
-    fontSize: 18,
-    fontFamily: 'Inter-Bold',
-    color: '#2563EB',
-    marginBottom: 8,
-  },
-  editButton: {
-    padding: 8,
-    borderRadius: 8,
-    backgroundColor: '#F3F4F6',
-  },
-  entryNotes: {
-    fontSize: 12,
-    fontFamily: 'Inter-Regular',
-    color: '#6B7280',
-    fontStyle: 'italic',
-    marginTop: 8,
-  },
-  entryStatus: {
-    position: 'absolute',
-    top: 12,
-    right: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  entryStatusText: {
-    fontSize: 8,
-    fontFamily: 'Inter-Bold',
-    color: '#FFFFFF',
-  },
-  noEntries: {
-    alignItems: 'center',
-    padding: 32,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-  },
-  noEntriesTitle: {
-    fontSize: 16,
-    fontFamily: 'Inter-SemiBold',
-    color: '#1F2937',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  noEntriesText: {
-    fontSize: 14,
-    fontFamily: 'Inter-Regular',
-    color: '#6B7280',
-    textAlign: 'center',
-  },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 16,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-  },
-  modalCancel: {
-    fontSize: 16,
-    fontFamily: 'Inter-Regular',
-    color: '#6B7280',
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontFamily: 'Inter-SemiBold',
-    color: '#1F2937',
-  },
-  modalSave: {
-    fontSize: 16,
-    fontFamily: 'Inter-SemiBold',
-    color: '#2563EB',
-  },
-  modalContent: {
-    padding: 24,
-  },
-  inputGroup: {
-    marginBottom: 20,
-  },
-  inputLabel: {
-    fontSize: 14,
-    fontFamily: 'Inter-SemiBold',
-    color: '#374151',
-    marginBottom: 8,
-  },
-  timeInput: {
-    height: 50,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    fontSize: 16,
-    fontFamily: 'Inter-Regular',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  notesInput: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
-    fontFamily: 'Inter-Regular',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    minHeight: 80,
-    textAlignVertical: 'top',
-  },
-});
+function createStyles(theme: string) {
+  const isDark = theme === 'dark';
+  
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: isDark ? '#111827' : '#F9FAFB',
+    },
+    header: {
+      padding: 20,
+      paddingTop: 60,
+      backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
+      borderBottomWidth: 1,
+      borderBottomColor: isDark ? '#374151' : '#E5E7EB',
+    },
+    title: {
+      fontSize: 24,
+      fontWeight: '700',
+      color: isDark ? '#F9FAFB' : '#111827',
+      marginBottom: 4,
+    },
+    date: {
+      fontSize: 14,
+      color: isDark ? '#9CA3AF' : '#6B7280',
+    },
+    content: {
+      flex: 1,
+      padding: 20,
+    },
+    timeDisplay: {
+      alignItems: 'center',
+      marginBottom: 32,
+      padding: 32,
+      backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
+      borderRadius: 16,
+      ...Platform.select({
+        android: {
+          elevation: 2,
+        },
+      }),
+    },
+    currentTime: {
+      fontSize: 36,
+      fontWeight: '700',
+      color: isDark ? '#F9FAFB' : '#111827',
+      marginTop: 16,
+    },
+    status: {
+      fontSize: 16,
+      color: isDark ? '#9CA3AF' : '#6B7280',
+      marginTop: 8,
+    },
+    clockButton: {
+      padding: 20,
+      borderRadius: 16,
+      alignItems: 'center',
+      marginBottom: 24,
+      ...Platform.select({
+        android: {
+          elevation: 2,
+        },
+      }),
+    },
+    clockInButton: {
+      backgroundColor: '#10B981',
+    },
+    clockOutButton: {
+      backgroundColor: '#EF4444',
+    },
+    clockButtonText: {
+      fontSize: 18,
+      fontWeight: '600',
+      color: '#FFFFFF',
+    },
+    locationCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
+      padding: 16,
+      borderRadius: 12,
+      marginBottom: 24,
+      ...Platform.select({
+        android: {
+          elevation: 1,
+        },
+      }),
+    },
+    locationInfo: {
+      flex: 1,
+      marginLeft: 12,
+    },
+    locationTitle: {
+      fontSize: 14,
+      fontWeight: '500',
+      color: isDark ? '#F9FAFB' : '#111827',
+      marginBottom: 4,
+    },
+    locationText: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: isDark ? '#F9FAFB' : '#111827',
+      marginBottom: 4,
+    },
+    locationCoords: {
+      fontSize: 12,
+      color: isDark ? '#9CA3AF' : '#6B7280',
+    },
+    statusDot: {
+      width: 12,
+      height: 12,
+      borderRadius: 6,
+    },
+    locationButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: '#2563EB',
+      borderRadius: 12,
+      paddingVertical: 16,
+      marginBottom: 24,
+      gap: 8,
+    },
+    disabledButton: {
+      opacity: 0.6,
+    },
+    locationButtonText: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: '#FFFFFF',
+    },
+    sessionInfo: {
+      backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
+      padding: 16,
+      borderRadius: 12,
+      alignItems: 'center',
+      ...Platform.select({
+        android: {
+          elevation: 1,
+        },
+      }),
+    },
+    sessionText: {
+      fontSize: 16,
+      color: isDark ? '#F9FAFB' : '#111827',
+      fontWeight: '500',
+    },
+  });
+}

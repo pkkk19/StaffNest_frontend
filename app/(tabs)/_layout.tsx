@@ -1,30 +1,114 @@
 import { Tabs } from 'expo-router';
-import { useSelector } from 'react-redux';
-import { RootState } from '@/store/store';
-import { Chrome as Home, Calendar, MessageCircle, User } from 'lucide-react-native';
+import { Chrome as Home, Calendar, Clock, Users, MessageSquare, Settings } from 'lucide-react-native';
+import { useTheme } from '@/contexts/ThemeContext';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function TabLayout() {
-  const { user } = useSelector((state: RootState) => state.auth);
+  const { theme } = useTheme();
+  const { user } = useAuth();
 
+  const colors = theme === 'dark' 
+    ? { background: '#1F2937', text: '#F9FAFB', inactive: '#6B7280' }
+    : theme === 'colorblind'
+    ? { background: '#FFFFFF', text: '#374151', inactive: '#9CA3AF' }
+    : { background: '#FFFFFF', text: '#374151', inactive: '#9CA3AF' };
+
+  // Different tab layouts for staff vs manager
+  if (user?.role === 'staff') {
+    return (
+      <Tabs
+        screenOptions={{
+          headerShown: false,
+          tabBarStyle: {
+            backgroundColor: colors.background,
+            borderTopWidth: 1,
+            borderTopColor: theme === 'dark' ? '#374151' : '#E5E7EB',
+            height: 80,
+            paddingBottom: 8,
+            paddingTop: 8,
+          },
+          tabBarLabelStyle: {
+            fontSize: 12,
+            fontWeight: '500',
+            marginTop: 4,
+          },
+          tabBarActiveTintColor: '#2563EB',
+          tabBarInactiveTintColor: colors.inactive,
+        }}>
+        <Tabs.Screen
+          name="index"
+          options={{
+            title: 'Dashboard',
+            tabBarIcon: ({ size, color }) => (
+              <Home size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="rota"
+          options={{
+            title: 'My Rota',
+            tabBarIcon: ({ size, color }) => (
+              <Calendar size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="time"
+          options={{
+            title: 'Time',
+            tabBarIcon: ({ size, color }) => (
+              <Clock size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="chat"
+          options={{
+            title: 'Chat',
+            tabBarIcon: ({ size, color }) => (
+              <MessageSquare size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="settings"
+          options={{
+            title: 'Settings',
+            tabBarIcon: ({ size, color }) => (
+              <Settings size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="staff"
+          options={{
+            href: null, // Hide this tab for staff
+          }}
+        />
+      </Tabs>
+    );
+  }
+  // Manager layout with all tabs
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: '#FFFFFF',
+          backgroundColor: colors.background,
           borderTopWidth: 1,
-          borderTopColor: '#E5E7EB',
-          height: 60,
+          borderTopColor: theme === 'dark' ? '#374151' : '#E5E7EB',
+          height: 80,
           paddingBottom: 8,
-          paddingTop: 4,
+          paddingTop: 8,
+        },
+        tabBarLabelStyle: {
+          fontSize: 12,
+          fontWeight: '500',
+          marginTop: 4,
         },
         tabBarActiveTintColor: '#2563EB',
-        tabBarInactiveTintColor: '#9CA3AF',
-        tabBarLabelStyle: {
-          fontSize: 10,
-          fontFamily: 'Inter-SemiBold',
-          marginTop: 2,
-        },
+        tabBarInactiveTintColor: colors.inactive,
       }}>
       <Tabs.Screen
         name="index"
@@ -45,45 +129,39 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="chat"
-        options={{
-          title: 'Messages',
-          tabBarIcon: ({ size, color }) => (
-            <MessageCircle size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="profile"
-        options={{
-          title: 'Me',
-          tabBarIcon: ({ size, color }) => (
-            <User size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
         name="time"
         options={{
-          href: null,
+          title: 'Time',
+          tabBarIcon: ({ size, color }) => (
+            <Clock size={size} color={color} />
+          ),
         }}
       />
       <Tabs.Screen
-        name="holidays"
+        name="staff"
         options={{
-          href: null,
+          title: 'Manage Staff',
+          tabBarIcon: ({ size, color }) => (
+            <Users size={size} color={color} />
+          ),
         }}
       />
       <Tabs.Screen
-        name="payslips"
+        name="chat"
         options={{
-          href: null,
+          title: 'Chat',
+          tabBarIcon: ({ size, color }) => (
+            <MessageSquare size={size} color={color} />
+          ),
         }}
       />
       <Tabs.Screen
-        name="notifications"
+        name="settings"
         options={{
-          href: null,
+          title: 'Settings',
+          tabBarIcon: ({ size, color }) => (
+            <Settings size={size} color={color} />
+          ),
         }}
       />
     </Tabs>
