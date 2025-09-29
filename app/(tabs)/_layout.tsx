@@ -2,6 +2,7 @@ import { Tabs } from 'expo-router';
 import { Chrome as Home, Calendar, Clock, Users, MessageSquare, Settings } from 'lucide-react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
+import ProtectedRoute from '@/components/ProtectedRoute';
 
 export default function TabLayout() {
   const { theme } = useTheme();
@@ -16,6 +17,7 @@ export default function TabLayout() {
   // Different tab layouts for staff vs manager
   if (user?.role === 'staff') {
     return (
+      <ProtectedRoute>
       <Tabs
         screenOptions={{
           headerShown: false,
@@ -87,10 +89,12 @@ export default function TabLayout() {
           }}
         />
       </Tabs>
+      </ProtectedRoute>
     );
   }
   // Manager layout with all tabs
   return (
+    <ProtectedRoute>
     <Tabs
       screenOptions={{
         headerShown: false,
@@ -165,5 +169,6 @@ export default function TabLayout() {
         }}
       />
     </Tabs>
+    </ProtectedRoute>
   );
 }

@@ -1,5 +1,5 @@
+import React, { useState } from 'react';
 import { View, Text, StyleSheet, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
-import { useState } from 'react';
 import { router } from 'expo-router';
 import { Mail, Lock, Eye, EyeOff } from 'lucide-react-native';
 import { useAuth } from '@/contexts/AuthContext';
@@ -19,34 +19,28 @@ export default function Login() {
   const styles = createStyles(theme);
 
   const handleLogin = async () => {
-    if (!email || !password) {
-      Alert.alert(t('error'), t('fillAllFields'));
-      return;
-    }
+  if (!email || !password) {
+    Alert.alert(t('error'), t('fillAllFields'));
+    return;
+  }
 
-    setIsLoading(true);
-    try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Demo credentials
-      const userRole = email.includes('admin') || email.includes('manager') ? 'manager' : 'staff';
-      
-      login({
-        id: '1',
-        email,
-        name: userRole === 'manager' ? 'John Manager' : 'Jane Staff',
-        role: userRole,
-        avatar: userRole === 'manager' ? 'JM' : 'JS'
-      });
-      
-      router.replace('/(tabs)');
-    } catch (error) {
-      Alert.alert(t('error'), t('loginFailed'));
-    } finally {
-      setIsLoading(false);
+  setIsLoading(true);
+  try {
+    await login(email, password);
+    router.replace('/(tabs)');
+  } catch (error: any) {
+    // More specific error handling
+    if (error.message.includes('undefined') || error.message.includes('null')) {
+      Alert.alert(t('error'), t('loginFailedTryAgain'));
+    } else if (error.message.includes('token')) {
+      Alert.alert(t('error'), t('authenticationError'));
+    } else {
+      Alert.alert(t('error'), error.message || t('loginFailed'));
     }
-  };
+  } finally {
+    setIsLoading(false);
+  }
+};
 
   return (
     <KeyboardAvoidingView 
@@ -109,12 +103,6 @@ export default function Login() {
             </Text>
           </ForceTouchable>
 
-          <View style={styles.demoCredentials}>
-            <Text style={styles.demoTitle}>{t('demoCredentials')}</Text>
-            <Text style={styles.demoText}>Manager: manager@staffnest.com / password</Text>
-            <Text style={styles.demoText}>Staff: staff@staffnest.com / password</Text>
-          </View>
-
           <View style={styles.signupLink}>
             <Text style={styles.signupLinkText}>{t('needManagerAccount')} </Text>
             <ForceTouchable onPress={() => router.push('/signup')}>
@@ -126,6 +114,8 @@ export default function Login() {
     </KeyboardAvoidingView>
   );
 }
+
+// Keep your existing createStyles function
 
 function createStyles(theme: string) {
   const isDark = theme === 'dark';

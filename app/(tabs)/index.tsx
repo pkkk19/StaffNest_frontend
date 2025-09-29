@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, StyleSheet, Platform } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, Platform, ActivityIndicator } from 'react-native';
 import { Bell, Calendar, Clock, FileText, Users, MessageSquare } from 'lucide-react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -6,19 +6,51 @@ import { useAuth } from '@/contexts/AuthContext';
 import { router } from 'expo-router';
 import { DashboardCard } from '@/components/DashboardCard';
 import ForceTouchable from '@/components/ForceTouchable';
+import { useState, useEffect } from 'react';
+import { shiftsAPI, companiesAPI } from '@/services/api';
 
 export default function Dashboard() {
   const { theme } = useTheme();
   const { t } = useLanguage();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
+  const [stats, setStats] = useState({
+    hoursThisWeek: 0,
+    holidaysLeft: 0
+  });
+  const [loading, setLoading] = useState(true);
 
   const styles = createStyles(theme);
+
+  useEffect(() => {
+    if (user && !authLoading) {
+      fetchDashboardData();
+    }
+  }, [user, authLoading]);
+
+  const fetchDashboardData = async () => {
+    try {
+      setLoading(true);
+      // Fetch real data from your backend
+      // Example: const shiftsResponse = await shiftsAPI.getShifts();
+      // Calculate hoursThisWeek from shifts data
+      
+      // For now, using mock data
+      setStats({
+        hoursThisWeek: 37.5,
+        holidaysLeft: 12
+      });
+    } catch (error) {
+      console.error('Failed to fetch dashboard data', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const quickActions = [
     { icon: Calendar, title: t('viewRota'), color: '#2563EB', route: '/rota' },
     { icon: Clock, title: t('clockIn'), color: '#10B981', route: '/time' },
     { icon: FileText, title: t('payslips'), color: '#F59E0B', route: '/payslips' },
-    ...(user?.role === 'manager' ? [
+    ...(user?.role === 'admin' ? [
       { icon: Users, title: t('manageStaff'), color: '#8B5CF6', route: '/staff' },
       { icon: Bell, title: t('sendNotifications'), color: '#EF4444', route: '/notifications' }
     ] : []),
@@ -30,19 +62,27 @@ export default function Dashboard() {
     { id: 3, title: t('rotaUpdated'), message: t('rotaUpdatedMsg'), time: '2d ago', type: 'warning' },
   ];
 
+  if (authLoading || loading) {
+    return (
+      <View style={[styles.container, styles.center]}>
+        <ActivityIndicator size="large" color="#2563EB" />
+      </View>
+    );
+  }
+
   return (
     <ScrollView style={styles.container}>
       <View style={styles.header}>
         <View style={styles.greetingContainer}>
           <Text style={styles.greeting}>
-            {user?.role === 'manager' ? t('goodMorningManager') : t('goodMorning')}
+            {user?.role === 'admin' ? t('goodMorningManager') : t('goodMorning')}
           </Text>
-          <Text style={styles.userName}>{user?.name}</Text>
+          <Text style={styles.userName}>{user ? `${user.first_name} ${user.last_name}` : 'Guest'}</Text>
           <View style={[styles.roleBadge, { 
-            backgroundColor: user?.role === 'manager' ? '#F59E0B' : '#2563EB' 
+            backgroundColor: user?.role === 'admin' ? '#F59E0B' : '#2563EB' 
           }]}>
             <Text style={styles.roleBadgeText}>
-              {user?.role === 'manager' ? t('manager') : t('staff')}
+              {user?.role === 'admin' ? t('manager') : t('staff')}
             </Text>
           </View>
         </View>
@@ -55,8 +95,18 @@ export default function Dashboard() {
       </View>
 
       <View style={styles.statsContainer}>
-        <DashboardCard title={t('hoursThisWeek')} value="37.5" subtitle={t('hours')} color="#2563EB" />
-        <DashboardCard title={t('holidaysLeft')} value="12" subtitle={t('days')} color="#10B981" />
+        <DashboardCard 
+          title={t('hoursThisWeek')} 
+          value={stats.hoursThisWeek.toString()} 
+          subtitle={t('hours')} 
+          color="#2563EB" 
+        />
+        <DashboardCard 
+          title={t('holidaysLeft')} 
+          value={stats.holidaysLeft.toString()} 
+          subtitle={t('days')} 
+          color="#10B981" 
+        />
       </View>
 
       <View style={styles.section}>
@@ -106,19 +156,22 @@ function getNotificationColor(type: string) {
 
 function createStyles(theme: string) {
   const isDark = theme === 'dark';
-  const isColorblind = theme === 'colorblind';
   
   return StyleSheet.create({
     container: {
       flex: 1,
       backgroundColor: isDark ? '#111827' : '#F9FAFB',
     },
+    center: {
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
     header: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
       padding: 20,
-      paddingTop: 60,
+      paddingTop: Platform.OS === 'ios' ? 60 : 20,
     },
     greetingContainer: {
       flex: 1,
@@ -178,17 +231,9 @@ function createStyles(theme: string) {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 12,
-      // REMOVED shadow properties - using platform-specific
       ...Platform.select({
-        ios: {
-          // iOS shadow (commented out to fix Android)
-          // shadowColor: '#000',
-          // shadowOffset: { width: 0, height: 2 },
-          // shadowOpacity: isDark ? 0.3 : 0.1,
-          // shadowRadius: 4,
-        },
         android: {
-          elevation: 3, // Android shadow
+          elevation: 3,
         },
       }),
     },

@@ -117,6 +117,11 @@ const translations: Record<Language, TranslationStrings> = {
     managerAccountDescription: 'Manager accounts have full access to staff management, rota creation, payroll, and all administrative features.',
     loginFailed: 'Login failed. Please try again.',
     yourLocation: 'Your Location',
+    firstName: 'First Name',
+    lastName: 'Last Name',
+    phoneNumber: 'Phone Number',
+    dateOfBirth: 'Date of Birth (YYYY-MM-DD)',
+    companyInfo: 'Company Information',
     
     // Additional translations
     staffDetails: 'Staff Details',
@@ -282,6 +287,13 @@ const translations: Record<Language, TranslationStrings> = {
     managerAccountDescription: 'प्रबन्धक खाताहरूमा कर्मचारी व्यवस्थापन, रोटा सिर्जना, पेरोल, र सबै प्रशासनिक सुविधाहरूमा पूर्ण पहुँच छ।',
     loginFailed: 'लगइन असफल। कृपया फेरि प्रयास गर्नुहोस्।',
     yourLocation: 'तपाईंको स्थान',
+    firstName: 'नाम',
+    lastName: 'थर',
+    phoneNumber: 'फोन नम्बर',
+    dateOfBirth: 'जन्म मिति (YYYY-MM-DD)',
+    companyInfo: 'कम्पनी जानकारी',
+    
+
     
     // Additional translations
     staffDetails: 'कर्मचारी विवरण',

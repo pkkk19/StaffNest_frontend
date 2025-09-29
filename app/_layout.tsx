@@ -93,14 +93,14 @@ export default function RootLayout() {
     <View key={key} style={{ flex: 1 }}>
       <AndroidTouchFix />
       <UniversalTouchFix />
-    <AuthProvider>
-      <ThemeProvider>
-        <LanguageProvider>
-          <RootLayoutNav />
-          <StatusBar style="auto" />
-        </LanguageProvider>
-      </ThemeProvider>
-    </AuthProvider>
+      <AuthProvider>
+        <ThemeProvider>
+          <LanguageProvider>
+            <RootLayoutNav />
+            <StatusBar style="auto" />
+          </LanguageProvider>
+        </ThemeProvider>
+      </AuthProvider>
     </View>
   );
 }

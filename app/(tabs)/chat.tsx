@@ -5,6 +5,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useAuth } from '@/contexts/AuthContext';
 import ForceTouchable from '@/components/ForceTouchable';
+import ProtectedRoute from '@/components/ProtectedRoute';
 
 export default function Chat() {
   const { theme } = useTheme();
@@ -73,6 +74,7 @@ export default function Chat() {
   );
 
   return (
+    <ProtectedRoute>
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>{t('chat')}</Text>
@@ -191,6 +193,7 @@ export default function Chat() {
         </View>
       </Modal>
     </View>
+    </ProtectedRoute>
   );
 }
 

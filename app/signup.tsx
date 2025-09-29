@@ -1,21 +1,33 @@
 import { View, Text, StyleSheet, TextInput, Alert, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { useState } from 'react';
 import { router } from 'expo-router';
-import { Mail, Lock, Eye, EyeOff, User, Building, ArrowLeft } from 'lucide-react-native';
+import { Mail, Lock, Eye, EyeOff, User, Building, ArrowLeft, Phone, MapPin, Calendar, Briefcase } from 'lucide-react-native';
+import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import ForceTouchable from '@/components/ForceTouchable';
 
 export default function Signup() {
+  const { register } = useAuth();
   const { theme } = useTheme();
   const { t } = useLanguage();
   const [formData, setFormData] = useState({
-    name: '',
+    // Required fields
     email: '',
     password: '',
     confirmPassword: '',
-    companyName: '',
-    companyCode: ''
+    first_name: '',
+    last_name: '',
+    role: 'admin' as 'admin' | 'staff', // Only admins can sign up
+    
+    // Company info (required for admin registration)
+    company_name: '',
+    
+    // Optional fields
+    position: '',
+    phone_number: '',
+    date_of_birth: '',
+    address: '',
   });
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -23,8 +35,14 @@ export default function Signup() {
 
   const styles = createStyles(theme);
 
+  const handleChange = (field: string, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
   const handleSignup = async () => {
-    if (!formData.name || !formData.email || !formData.password || !formData.confirmPassword || !formData.companyName) {
+    // Validate required fields
+    if (!formData.email || !formData.password || !formData.confirmPassword || 
+        !formData.first_name || !formData.last_name || !formData.company_name) {
       Alert.alert(t('error'), t('fillAllFields'));
       return;
     }
@@ -41,16 +59,24 @@ export default function Signup() {
 
     setIsLoading(true);
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      // Prepare data for API
+      const { confirmPassword, company_name, ...userData } = formData;
+      
+      // Add company name to user data (backend will handle company creation)
+      const registrationData = {
+        ...userData,
+        company_name: formData.company_name
+      };
+
+      await register(registrationData);
       
       Alert.alert(
         t('success'),
         t('accountCreated'),
-        [{ text: t('ok'), onPress: () => router.replace('/login') }]
+        [{ text: t('ok'), onPress: () => router.replace('/(tabs)') }]
       );
     } catch (error) {
-      Alert.alert(t('error'), t('signupFailed'));
+      // Error is already handled in the auth context
     } finally {
       setIsLoading(false);
     }
@@ -74,14 +100,27 @@ export default function Signup() {
         </View>
 
         <View style={styles.form}>
+          <Text style={styles.sectionTitle}>{t('personalInfo')}</Text>
+          
           <View style={styles.inputContainer}>
             <User size={20} color="#6B7280" style={styles.inputIcon} />
             <TextInput
               style={styles.input}
-              placeholder={t('fullName')}
+              placeholder={t('firstName')}
               placeholderTextColor="#6B7280"
-              value={formData.name}
-              onChangeText={(text) => setFormData({...formData, name: text})}
+              value={formData.first_name}
+              onChangeText={(text) => handleChange('first_name', text)}
+            />
+          </View>
+
+          <View style={styles.inputContainer}>
+            <User size={20} color="#6B7280" style={styles.inputIcon} />
+            <TextInput
+              style={styles.input}
+              placeholder={t('lastName')}
+              placeholderTextColor="#6B7280"
+              value={formData.last_name}
+              onChangeText={(text) => handleChange('last_name', text)}
             />
           </View>
 
@@ -92,31 +131,81 @@ export default function Signup() {
               placeholder={t('email')}
               placeholderTextColor="#6B7280"
               value={formData.email}
-              onChangeText={(text) => setFormData({...formData, email: text})}
+              onChangeText={(text) => handleChange('email', text)}
               keyboardType="email-address"
               autoCapitalize="none"
             />
           </View>
 
           <View style={styles.inputContainer}>
-            <Building size={20} color="#6B7280" style={styles.inputIcon} />
+            <Phone size={20} color="#6B7280" style={styles.inputIcon} />
             <TextInput
               style={styles.input}
-              placeholder={t('companyName')}
+              placeholder={t('phoneNumber')}
               placeholderTextColor="#6B7280"
-              value={formData.companyName}
-              onChangeText={(text) => setFormData({...formData, companyName: text})}
+              value={formData.phone_number}
+              onChangeText={(text) => handleChange('phone_number', text)}
+              keyboardType="phone-pad"
             />
           </View>
 
           <View style={styles.inputContainer}>
+            <Calendar size={20} color="#6B7280" style={styles.inputIcon} />
+            <TextInput
+              style={styles.input}
+              placeholder={t('dateOfBirth')}
+              placeholderTextColor="#6B7280"
+              value={formData.date_of_birth}
+              onChangeText={(text) => handleChange('date_of_birth', text)}
+            />
+          </View>
+
+          <Text style={styles.sectionTitle}>{t('companyInfo')}</Text>
+          
+          <View style={styles.inputContainer}>
+            <Building size={20} color="#6B7280" style={styles.inputIcon} />
+            <TextInput
+              style={styles.input}
+              placeholder={t('companyName') + ' *'}
+              placeholderTextColor="#6B7280"
+              value={formData.company_name}
+              onChangeText={(text) => handleChange('company_name', text)}
+            />
+          </View>
+
+          <View style={styles.inputContainer}>
+            <Briefcase size={20} color="#6B7280" style={styles.inputIcon} />
+            <TextInput
+              style={styles.input}
+              placeholder={t('position')}
+              placeholderTextColor="#6B7280"
+              value={formData.position}
+              onChangeText={(text) => handleChange('position', text)}
+            />
+          </View>
+
+          <View style={styles.inputContainer}>
+            <MapPin size={20} color="#6B7280" style={styles.inputIcon} />
+            <TextInput
+              style={styles.input}
+              placeholder={t('address')}
+              placeholderTextColor="#6B7280"
+              value={formData.address}
+              onChangeText={(text) => handleChange('address', text)}
+              multiline
+            />
+          </View>
+
+          <Text style={styles.sectionTitle}>{t('security')}</Text>
+          
+          <View style={styles.inputContainer}>
             <Lock size={20} color="#6B7280" style={styles.inputIcon} />
             <TextInput
               style={styles.input}
-              placeholder={t('password')}
+              placeholder={t('password') + ' *'}
               placeholderTextColor="#6B7280"
               value={formData.password}
-              onChangeText={(text) => setFormData({...formData, password: text})}
+              onChangeText={(text) => handleChange('password', text)}
               secureTextEntry={!showPassword}
             />
             <ForceTouchable 
@@ -135,10 +224,10 @@ export default function Signup() {
             <Lock size={20} color="#6B7280" style={styles.inputIcon} />
             <TextInput
               style={styles.input}
-              placeholder={t('confirmPassword')}
+              placeholder={t('confirmPassword') + ' *'}
               placeholderTextColor="#6B7280"
               value={formData.confirmPassword}
-              onChangeText={(text) => setFormData({...formData, confirmPassword: text})}
+              onChangeText={(text) => handleChange('confirmPassword', text)}
               secureTextEntry={!showConfirmPassword}
             />
             <ForceTouchable
@@ -190,8 +279,8 @@ function createStyles(theme: string) {
     },
     scrollContent: {
       flexGrow: 1,
-      justifyContent: 'center',
       paddingHorizontal: 24,
+      paddingVertical: 20,
     },
     header: {
       alignItems: 'center',
@@ -230,6 +319,13 @@ function createStyles(theme: string) {
     form: {
       gap: 16,
     },
+    sectionTitle: {
+      fontSize: 18,
+      fontWeight: '600',
+      color: isDark ? '#F9FAFB' : '#111827',
+      marginTop: 16,
+      marginBottom: 8,
+    },
     inputContainer: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -256,19 +352,10 @@ function createStyles(theme: string) {
       borderRadius: 12,
       paddingVertical: 16,
       alignItems: 'center',
-      marginTop: 8,
-      // REMOVED shadow properties that were causing Android issues
-      // ADD platform-specific elevation instead
+      marginTop: 24,
       ...Platform.select({
-        ios: {
-          // iOS shadow (commented out to fix Android)
-          // shadowColor: '#000',
-          // shadowOffset: { width: 0, height: 4 },
-          // shadowOpacity: 0.2,
-          // shadowRadius: 8,
-        },
         android: {
-          elevation: 5, // Android shadow
+          elevation: 5,
         },
       }),
     },
@@ -302,10 +389,9 @@ function createStyles(theme: string) {
       marginTop: 24,
       borderWidth: 1,
       borderColor: isDark ? '#374151' : '#BFDBFE',
-      // REMOVED shadow properties
       ...Platform.select({
         android: {
-          elevation: 2, // Android shadow
+          elevation: 2,
         },
       }),
     },
