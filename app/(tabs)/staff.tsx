@@ -77,7 +77,10 @@ export default function Staff() {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>{t('staff')}</Text>
-        <ForceTouchable style={styles.addButton}>
+        <ForceTouchable 
+          style={styles.addButton}
+          onPress={() => router.push('/forms/add-staff')}
+        >
           <Plus size={24} color="#FFFFFF" />
         </ForceTouchable>
       </View>

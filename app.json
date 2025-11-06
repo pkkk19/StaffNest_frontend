@@ -19,7 +19,7 @@
       ],
       "config": {
         "googleMaps": {
-          "apiKey": "YOUR_GOOGLE_MAPS_API_KEY_HERE"
+          "apiKey": "AIzaSyA1jDwErjKnuOP5z-3m9ZqHw6z-7WG_lMU"
         }
       }
     },
@@ -55,8 +55,8 @@
       [
         "expo-maps",
         {
-          "androidApiKey": "YOUR_GOOGLE_MAPS_API_KEY_HERE",
-          "iosApiKey": "YOUR_GOOGLE_MAPS_IOS_API_KEY_HERE"
+          "androidApiKey": "AIzaSyA1jDwErjKnuOP5z-3m9ZqHw6z-7WG_lMU",
+          "iosApiKey": "AIzaSyA1jDwErjKnuOP5z-3m9ZqHw6z-7WG_lMU"
         }
       ]
     ],

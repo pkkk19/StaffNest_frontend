@@ -9,29 +9,13 @@ import {
   Modal,
   TextInput,
   Alert,
-  Dimensions,
-  Platform
+  Platform,
+  Linking
 } from 'react-native';
 import * as Location from 'expo-location';
-import { MapPin, Plus, Trash2, Edit3, Navigation, Target, Building } from 'lucide-react-native';
+import { MapPin, Plus, Trash2, Edit3, Navigation, Target, Building, ExternalLink } from 'lucide-react-native';
 import Constants from 'expo-constants';
-
-// Platform-specific imports with proper error handling
-let MapView: any = null;
-let Marker: any = null;
-let Circle: any = null;
-
-// Only try to import react-native-maps for native platforms
-if (Platform.OS !== 'web') {
-  try {
-    const Maps = require('react-native-maps');
-    MapView = Maps.MapView;
-    Marker = Maps.Marker;
-    Circle = Maps.Circle;
-  } catch (error) {
-    console.log('react-native-maps not available:', error);
-  }
-}
+import MapView, { Marker, Circle, PROVIDER_GOOGLE, Region } from 'react-native-maps';
 
 interface CompanyLocation {
   id: string;
@@ -49,13 +33,6 @@ interface LatLng {
   longitude: number;
 }
 
-interface Region {
-  latitude: number;
-  longitude: number;
-  latitudeDelta: number;
-  longitudeDelta: number;
-}
-
 export default function CompanyLocations() {
   const [locations, setLocations] = useState<CompanyLocation[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
@@ -71,19 +48,36 @@ export default function CompanyLocations() {
     latitudeDelta: 0.0922,
     longitudeDelta: 0.0421,
   });
+  const [locationPermission, setLocationPermission] = useState<boolean>(false);
 
-  const mapRef = useRef<any>(null);
+  const mapRef = useRef<MapView>(null);
 
   useEffect(() => {
-    getCurrentLocation();
+    checkLocationPermission();
     loadMockLocations();
   }, []);
+
+  const checkLocationPermission = async () => {
+    try {
+      const { status } = await Location.getForegroundPermissionsAsync();
+      setLocationPermission(status === 'granted');
+      
+      if (status === 'granted') {
+        getCurrentLocation();
+      }
+    } catch (error) {
+      console.log('Error checking location permission:', error);
+    }
+  };
 
   const getCurrentLocation = async () => {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status === 'granted') {
-        const location = await Location.getCurrentPositionAsync({});
+        setLocationPermission(true);
+        const location = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
         setCurrentLocation(location);
         setRegion({
           latitude: location.coords.latitude,
@@ -91,9 +85,12 @@ export default function CompanyLocations() {
           latitudeDelta: 0.0922,
           longitudeDelta: 0.0421,
         });
+      } else {
+        setLocationPermission(false);
       }
     } catch (error) {
       console.log('Error getting location:', error);
+      setLocationPermission(false);
     }
   };
 
@@ -187,15 +184,23 @@ export default function CompanyLocations() {
     );
   };
 
-  const useCurrentLocation = () => {
+  const useCurrentLocation = async () => {
+    if (!locationPermission) {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Location permission is required to use your current location.');
+        return;
+      }
+      setLocationPermission(true);
+    }
+
     if (currentLocation) {
       setSelectedCoordinate({
         latitude: currentLocation.coords.latitude,
         longitude: currentLocation.coords.longitude,
       });
       
-      // Animate to current location (native only)
-      if (mapRef.current && mapRef.current.animateToRegion) {
+      if (mapRef.current) {
         mapRef.current.animateToRegion({
           latitude: currentLocation.coords.latitude,
           longitude: currentLocation.coords.longitude,
@@ -205,103 +210,99 @@ export default function CompanyLocations() {
       }
       
       // Reverse geocode to get address
-      Location.reverseGeocodeAsync({ 
-        latitude: currentLocation.coords.latitude, 
-        longitude: currentLocation.coords.longitude 
-      })
-      .then(result => {
+      try {
+        const result = await Location.reverseGeocodeAsync({ 
+          latitude: currentLocation.coords.latitude, 
+          longitude: currentLocation.coords.longitude 
+        });
+        
         if (result[0]) {
-          const address = `${result[0].street || ''}, ${result[0].city || ''}, ${result[0].country || ''}`.replace(/^,\s*/, '');
-          setLocationAddress(address);
+          const addressParts = [
+            result[0].street,
+            result[0].city,
+            result[0].region,
+            result[0].country
+          ].filter(Boolean);
+          
+          setLocationAddress(addressParts.join(', '));
         }
-      })
-      .catch(console.error);
+      } catch (error) {
+        console.log('Error reverse geocoding:', error);
+      }
+    } else {
+      await getCurrentLocation();
     }
   };
 
-  const handleMapPress = (e: any) => {
+  const handleMapPress = async (e: any) => {
     const coordinate = e.nativeEvent ? e.nativeEvent.coordinate : null;
     if (coordinate) {
       setSelectedCoordinate(coordinate);
       
       // Reverse geocode to get address
-      Location.reverseGeocodeAsync({ 
-        latitude: coordinate.latitude, 
-        longitude: coordinate.longitude 
-      })
-      .then(result => {
+      try {
+        const result = await Location.reverseGeocodeAsync({ 
+          latitude: coordinate.latitude, 
+          longitude: coordinate.longitude 
+        });
+        
         if (result[0]) {
-          const address = `${result[0].street || ''}, ${result[0].city || ''}, ${result[0].country || ''}`.replace(/^,\s*/, '');
-          setLocationAddress(address);
+          const addressParts = [
+            result[0].street,
+            result[0].city,
+            result[0].region,
+            result[0].country
+          ].filter(Boolean);
+          
+          setLocationAddress(addressParts.join(', '));
         }
-      })
-      .catch(console.error);
+      } catch (error) {
+        console.log('Error reverse geocoding:', error);
+      }
     }
   };
 
   const focusOnLocation = (location: CompanyLocation) => {
-    if (mapRef.current && mapRef.current.animateToRegion) {
+    if (mapRef.current) {
       mapRef.current.animateToRegion({
         latitude: location.latitude,
         longitude: location.longitude,
         latitudeDelta: 0.005,
         longitudeDelta: 0.005,
       });
-    } else {
-      // For web, just update the region
-      setRegion({
-        latitude: location.latitude,
-        longitude: location.longitude,
-        latitudeDelta: 0.005,
-        longitudeDelta: 0.005,
+    }
+  };
+
+  const openInGoogleMaps = (location: CompanyLocation) => {
+    const url = Platform.select({
+      ios: `maps://?q=${location.latitude},${location.longitude}`,
+      android: `geo:${location.latitude},${location.longitude}?q=${location.latitude},${location.longitude}(${encodeURIComponent(location.name)})`,
+    });
+    
+    if (url) {
+      Linking.openURL(url).catch(err => {
+        // Fallback to web Google Maps
+        const webUrl = `https://www.google.com/maps/search/?api=1&query=${location.latitude},${location.longitude}`;
+        Linking.openURL(webUrl);
       });
     }
   };
 
-  // Web fallback component
-  const WebMapFallback = () => (
-    <View style={styles.webMapFallback}>
-      <MapPin size={48} color="#9CA3AF" />
-      <Text style={styles.webMapText}>Map view not available on web</Text>
-      <Text style={styles.webMapSubtext}>
-        Use the native app to view and interact with maps
-      </Text>
-      {selectedCoordinate && (
-        <View style={styles.coordinateInfo}>
-          <Text style={styles.coordinateText}>
-            📍 Selected: {selectedCoordinate.latitude.toFixed(6)}, {selectedCoordinate.longitude.toFixed(6)}
-          </Text>
-        </View>
-      )}
-    </View>
-  );
-
-  // Render map based on platform
+  // Render map with Google Maps provider
   const renderMap = (isModal = false) => {
-    if (Platform.OS === 'web') {
-      return <WebMapFallback />;
-    }
-
-    // Check if MapView is available (might not be if import failed)
-    if (!MapView) {
-      return (
-        <View style={styles.webMapFallback}>
-          <MapPin size={48} color="#9CA3AF" />
-          <Text style={styles.webMapText}>Maps not available</Text>
-          <Text style={styles.webMapSubtext}>
-            react-native-maps could not be loaded
-          </Text>
-        </View>
-      );
-    }
-
     return (
       <MapView
         ref={isModal ? null : mapRef}
         style={isModal ? styles.modalMap : styles.map}
+        provider={PROVIDER_GOOGLE}
         region={region}
         onRegionChangeComplete={setRegion}
         onPress={handleMapPress}
+        showsUserLocation={locationPermission}
+        showsMyLocationButton={false}
+        loadingEnabled={true}
+        loadingIndicatorColor="#666666"
+        loadingBackgroundColor="#eeeeee"
       >
         {locations.map(location => (
           <React.Fragment key={location.id}>
@@ -312,6 +313,7 @@ export default function CompanyLocations() {
               }}
               title={location.name}
               description={location.address}
+              pinColor="#059669"
             />
             <Circle
               center={{
@@ -331,6 +333,7 @@ export default function CompanyLocations() {
             <Marker
               coordinate={selectedCoordinate}
               title={locationName || 'New Location'}
+              description="Selected location"
               pinColor="#2563EB"
             />
             <Circle
@@ -368,6 +371,13 @@ export default function CompanyLocations() {
           <View style={styles.mapContainer}>
             {renderMap()}
           </View>
+          {!locationPermission && (
+            <View style={styles.permissionWarning}>
+              <Text style={styles.permissionText}>
+                Location permission required to show your current location
+              </Text>
+            </View>
+          )}
         </View>
 
         <View style={styles.locationsSection}>
@@ -378,6 +388,9 @@ export default function CompanyLocations() {
                 <View style={styles.locationInfo}>
                   <Text style={styles.locationName}>{location.name}</Text>
                   <Text style={styles.locationAddress}>{location.address}</Text>
+                  <Text style={styles.locationCoordinates}>
+                    {location.latitude.toFixed(6)}, {location.longitude.toFixed(6)}
+                  </Text>
                   <Text style={styles.locationRadius}>
                     Radius: {location.radius}m coverage area
                   </Text>
@@ -404,6 +417,14 @@ export default function CompanyLocations() {
                 >
                   <Target size={16} color="#059669" />
                   <Text style={styles.actionButtonText}>View</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.actionButton}
+                  onPress={() => openInGoogleMaps(location)}
+                >
+                  <ExternalLink size={16} color="#7C3AED" />
+                  <Text style={styles.actionButtonText}>Open</Text>
                 </TouchableOpacity>
                 
                 <TouchableOpacity
@@ -456,17 +477,20 @@ export default function CompanyLocations() {
                   value={locationName}
                   onChangeText={setLocationName}
                   placeholder="e.g., Main Office, Warehouse"
+                  placeholderTextColor="#9CA3AF"
                 />
               </View>
 
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Address</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, styles.textArea]}
                   value={locationAddress}
                   onChangeText={setLocationAddress}
                   placeholder="Address will be auto-filled when you select on map"
+                  placeholderTextColor="#9CA3AF"
                   multiline
+                  numberOfLines={3}
                 />
               </View>
 
@@ -478,9 +502,10 @@ export default function CompanyLocations() {
                     value={radius.toString()}
                     onChangeText={(text) => {
                       const newRadius = parseInt(text) || 100;
-                      setRadius(newRadius);
+                      setRadius(Math.min(Math.max(newRadius, 10), 5000)); // Limit between 10 and 5000 meters
                     }}
                     placeholder="100"
+                    placeholderTextColor="#9CA3AF"
                     keyboardType="numeric"
                   />
                   <Text style={styles.radiusUnit}>meters</Text>
@@ -584,23 +609,21 @@ const styles = StyleSheet.create({
   map: {
     ...StyleSheet.absoluteFillObject,
   },
-  webMapFallback: {
+  modalMap: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-    backgroundColor: '#F3F4F6',
+    minHeight: 300,
   },
-  webMapText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#4B5563',
-    marginTop: 12,
-    marginBottom: 4,
+  permissionWarning: {
+    backgroundColor: '#FEF3F2',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 8,
+    borderLeftWidth: 4,
+    borderLeftColor: '#F04438',
   },
-  webMapSubtext: {
-    fontSize: 14,
-    color: '#6B7280',
+  permissionText: {
+    fontSize: 12,
+    color: '#B42318',
     textAlign: 'center',
   },
   locationsSection: {
@@ -612,6 +635,11 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
   },
   locationHeader: {
     flexDirection: 'row',
@@ -631,8 +659,14 @@ const styles = StyleSheet.create({
   locationAddress: {
     fontSize: 14,
     color: '#6B7280',
-    marginBottom: 4,
+    marginBottom: 2,
     lineHeight: 20,
+  },
+  locationCoordinates: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    marginBottom: 4,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   locationRadius: {
     fontSize: 12,
@@ -642,9 +676,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 8,
+    marginLeft: 8,
   },
   statusText: {
-    fontSize: 8,
+    fontSize: 10,
     fontWeight: 'bold',
     color: '#FFFFFF',
   },
@@ -672,6 +707,11 @@ const styles = StyleSheet.create({
     padding: 32,
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
   },
   emptyTitle: {
     fontSize: 16,
@@ -740,6 +780,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     borderWidth: 1,
     borderColor: '#E5E7EB',
+    color: '#1F2937',
+  },
+  textArea: {
+    height: 80,
+    paddingTop: 12,
+    paddingBottom: 12,
+    textAlignVertical: 'top',
   },
   radiusContainer: {
     flexDirection: 'row',
@@ -755,6 +802,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     borderWidth: 1,
     borderColor: '#E5E7EB',
+    color: '#1F2937',
   },
   radiusUnit: {
     fontSize: 14,
@@ -795,21 +843,20 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     marginBottom: 16,
   },
-  modalMap: {
-    flex: 1,
-    minHeight: 300,
-  },
   coordinateInfo: {
     backgroundColor: '#EFF6FF',
     borderRadius: 12,
     padding: 16,
     marginTop: 16,
+    borderLeftWidth: 4,
+    borderLeftColor: '#2563EB',
   },
   coordinateText: {
     fontSize: 14,
     fontWeight: '600',
     color: '#1E40AF',
     marginBottom: 4,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   radiusInfo: {
     fontSize: 12,

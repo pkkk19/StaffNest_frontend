@@ -8,7 +8,7 @@ const LOCAL_IP = '192.168.1.67'; // Your computer's IP
 
 const getBaseURL = () => {
   if (USE_NGROK) {
-    return 'https://92031906b1fd.ngrok-free.app/';
+    return 'https://804c45252eb1.ngrok-free.app';
   } else {
     return `http://${LOCAL_IP}:3000`;
   }
@@ -20,33 +20,11 @@ const api = axios.create({
   timeout: 15000,
 });
 
-// Add request logging
-api.interceptors.response.use(
-  (response) => {
-    console.log('✅ API Response:', response.status, response.config.url);
-    console.log('📊 Full Response:', JSON.stringify(response, null, 2));
-    console.log('📊 Response Data:', response.data);
-    return response;
-  },
-  (error) => {
-    console.error('❌ API Response Error:', error.message);
-    console.error('🔗 URL attempted:', error.config?.baseURL + error.config?.url);
-
-    if (error.response) {
-      console.error('📊 Response status:', error.response.status);
-      console.error('📊 Response data:', error.response.data);
-      console.error('📊 Response headers:', error.response.headers);
-    }
-
-    return Promise.reject(error);
-  }
-);
-
 // Add auth token to requests automatically
 api.interceptors.request.use(
   async (config) => {
     try {
-      const token = await AsyncStorage.getItem('authToken');
+      const token = await AsyncStorage.getItem('authaccess_token');
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
       }
@@ -56,6 +34,47 @@ api.interceptors.request.use(
     return config;
   },
   (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// Add response interceptor to handle token expiration
+api.interceptors.response.use(
+  (response) => {
+    console.log('✅ API Response:', response.status, response.config.url);
+    console.log('📊 Full Response:', JSON.stringify(response, null, 2));
+    console.log('📊 Response Data:', response.data);
+    return response;
+  },
+  async (error) => {
+    console.error('❌ API Response Error:', error.message);
+    console.error('🔗 URL attempted:', error.config?.baseURL + error.config?.url);
+
+    if (error.response) {
+      console.error('📊 Response status:', error.response.status);
+      console.error('📊 Response data:', error.response.data);
+      console.error('📊 Response headers:', error.response.headers);
+
+      // Handle token expiration (401 Unauthorized)
+      if (error.response.status === 401) {
+        console.log('🔄 Token expired, removing from storage');
+        
+        try {
+          // Remove the expired token
+          await AsyncStorage.removeItem('authaccess_token');
+          
+          // You can also emit an event or use a global state to notify the app
+          // For now, we'll just log and let the component handle the redirect
+          console.log('🔑 Token removed due to expiration');
+          
+          // You could also show an alert here if needed
+          // Alert.alert('Session Expired', 'Please login again');
+        } catch (storageError) {
+          console.error('Error removing auth token:', storageError);
+        }
+      }
+    }
+
     return Promise.reject(error);
   }
 );
@@ -142,6 +161,71 @@ export const rotaAPI = {
   updateRotaItem: (id: string, rotaData: any) => 
     api.put(`/rota/${id}`, rotaData),
   deleteRotaItem: (id: string) => api.delete(`/rota/${id}`),
+};
+
+// Add this to your existing API exports in api.ts
+
+// Staff API calls
+export const staffAPI = {
+  // Create a new staff member with payroll data
+  createStaff: (staffData: {
+    // Personal Information
+    first_name: string;
+    last_name: string;
+    email: string;
+    phone_number?: string;
+    address?: string;
+    date_of_birth?: string;
+    
+    // Employment Details
+    role: 'admin' | 'staff';
+    position?: string;
+    department?: string;
+    employment_type?: 'full-time' | 'part-time' | 'contract';
+    employment_start_date?: string;
+    
+    // Payroll Information
+    employee_ref: string;
+    ni_number: string;
+    tax_code?: string;
+    pay_frequency?: 'monthly' | 'weekly' | 'bi-weekly' | 'fortnightly';
+    payment_method?: 'BACS' | 'Cheque' | 'Cash';
+    
+    // Bank Details
+    bank_account_number?: string;
+    bank_sort_code?: string;
+    
+    // Pension Information
+    pension_scheme?: string;
+    employee_pension_rate?: number;
+    pension_salary_sacrifice?: boolean;
+    
+    // Pay Rates
+    default_hourly_rate?: number;
+    default_salary?: number;
+    
+    // Leave Entitlement
+    annual_leave_entitlement_days?: number;
+    annual_leave_entitlement_hours?: number;
+    
+    // Password (required for user creation)
+    password: string;
+  }) => api.post('/users', staffData),
+  
+  // Get all staff members
+  getStaff: () => api.get('/users'),
+  
+  // Get staff members only (non-admin)
+  getStaffMembers: () => api.get('/users/staff'),
+  
+  // Get specific staff member
+  getStaffMember: (id: string) => api.get(`/users/${id}`),
+  
+  // Update staff member
+  updateStaff: (id: string, staffData: any) => api.patch(`/users/${id}`, staffData),
+  
+  // Delete staff member
+  deleteStaff: (id: string) => api.delete(`/users/${id}`),
 };
 
 export default api;

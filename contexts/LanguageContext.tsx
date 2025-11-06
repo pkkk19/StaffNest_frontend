@@ -14,6 +14,9 @@ type TranslationStrings = {
 
 const translations: Record<Language, TranslationStrings> = {
   en: {
+    sessionExpired: 'Session Expired',
+    pleaseLoginAgain: 'Your session has expired. Please login again.',
+    
     // Dashboard
     goodMorning: 'Good Morning',
     goodMorningManager: 'Good Morning, Manager',
@@ -182,6 +185,75 @@ const translations: Record<Language, TranslationStrings> = {
     locationRequired: 'Location Required',
     locationRequiredMessage: 'Location access is required for clock-in. Please enable location permissions.',
     enableLocation: 'Enable Location',
+
+    // Add Staff
+    addStaffMember: 'Add Staff Member',
+    enterFirstName: 'Enter first name',
+    enterLastName: 'Enter last name',
+    enterDepartment: 'Enter department',
+    supervisor: 'Supervisor',
+    mainBranch: 'Main Branch',
+    secondaryBranch: 'Secondary Branch',
+    remote: 'Remote',
+    contractType: 'Contract Type',
+    fullTime: 'Full Time',
+    partTime: 'Part Time',
+    contract: 'Contract',
+    temporary: 'Temporary',
+    workingHoursPerWeek: 'Working Hours per Week',
+    salary: 'Salary',
+    firstNameRequired: 'First name is required',
+    lastNameRequired: 'Last name is required',
+    emailRequired: 'Email is required',
+    phoneRequired: 'Phone number is required',
+    departmentRequired: 'Department is required',
+    startDateRequired: 'Start date is required',
+    invalidEmail: 'Please enter a valid email address',
+    pleaseFixErrors: 'Please fix the errors before submitting',
+    staffMemberAdded: 'Staff member added successfully',
+    accessDenied: 'Access Denied',
+    managerAccessOnly: 'Only managers can access this feature',
+
+    // New fields
+  "employeeRef": "Employee Reference",
+  "employeeRefRequired": "Employee reference is required",
+  "niNumber": "NI Number",
+  "niNumberRequired": "NI Number is required",
+  "invalidNiNumber": "Invalid NI Number format",
+  "taxCode": "Tax Code",
+  "payFrequency": "Pay Frequency",
+  "paymentMethod": "Payment Method",
+  "bankAccountNumber": "Bank Account Number",
+  "bankSortCode": "Sort Code",
+  "pensionScheme": "Pension Scheme",
+  "employeePensionRate": "Employee Pension Rate (%)",
+  "pensionSalarySacrifice": "Salary Sacrifice Pension",
+  "defaultHourlyRate": "Default Hourly Rate",
+  "defaultSalary": "Default Salary",
+  "annualLeaveEntitlementDays": "Annual Leave (Days)",
+  "annualLeaveEntitlementHours": "Annual Leave (Hours)",
+  "employmentType": "Employment Type",
+  "employmentStartDate": "Employment Start Date",
+  "position": "Position",
+  
+  // Options
+  "monthly": "Monthly",
+  "weekly": "Weekly",
+  "biWeekly": "Bi-Weekly",
+  "fortnightly": "Fortnightly",
+  "bacs": "BACS",
+  "cheque": "Cheque",
+  "cash": "Cash",
+  "yes": "Yes",
+  "no": "No",
+  
+  // Section titles
+  "payrollInformation": "Payroll Information",
+  "bankDetails": "Bank Details",
+  "pensionAndPay": "Pension & Pay Rates",
+
+  // Add these to your translation files
+  "failedToAddStaff": "Failed to add staff member",
   },
   ne: {
     // Dashboard
@@ -354,6 +426,34 @@ const translations: Record<Language, TranslationStrings> = {
     locationRequired: 'स्थान आवश्यक',
     locationRequiredMessage: 'क्लक-इनका लागि स्थान पहुँच आवश्यक छ। कृपया स्थान अनुमतिहरू सक्षम गर्नुहोस्।',
     enableLocation: 'स्थान सक्षम गर्नुहोस्',
+
+    // Add Staff
+    addStaffMember: 'कर्मचारी थप्नुहोस्',
+    enterFirstName: 'पहिलो नाम प्रविष्ट गर्नुहोस्',
+    enterLastName: 'अन्तिम नाम प्रविष्ट गर्नुहोस्',
+    enterDepartment: 'विभाग प्रविष्ट गर्नुहोस्',
+    supervisor: 'पर्यवेक्षक',
+    mainBranch: 'मुख्य शाखा',
+    secondaryBranch: 'द्वितीयक शाखा',
+    remote: 'रिमोट',
+    contractType: 'सम्झौताको प्रकार',
+    fullTime: 'पूर्ण समय',
+    partTime: 'आंशिक समय',
+    contract: 'सम्झौता',
+    temporary: 'अस्थायी',
+    workingHoursPerWeek: 'प्रति हप्ता काम गर्ने घण्टा',
+    salary: 'तलब',
+    firstNameRequired: 'पहिलो नाम आवश्यक छ',
+    lastNameRequired: 'अन्तिम नाम आवश्यक छ',
+    emailRequired: 'इमेल आवश्यक छ',
+    phoneRequired: 'फोन नम्बर आवश्यक छ',
+    departmentRequired: 'विभाग आवश्यक छ',
+    startDateRequired: 'सुरु मिति आवश्यक छ',
+    invalidEmail: 'कृपया मान्य इमेल ठेगाना प्रविष्ट गर्नुहोस्',
+    pleaseFixErrors: 'पेश गर्नु अघि त्रुटिहरू समाधान गर्नुहोस्',
+    staffMemberAdded: 'कर्मचारी सफलतापूर्वक थपियो',
+    accessDenied: 'पहुँच अस्वीकृत',
+    managerAccessOnly: 'केवल प्रबन्धकहरूले मात्र यो सुविधा पहुँच गर्न सक्छन्',
   },
 };
 

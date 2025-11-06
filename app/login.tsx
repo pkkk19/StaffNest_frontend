@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { router } from 'expo-router';
 import { Mail, Lock, Eye, EyeOff } from 'lucide-react-native';
@@ -8,7 +8,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import ForceTouchable from '@/components/ForceTouchable';
 
 export default function Login() {
-  const { login } = useAuth();
+  const { login, tokenExpired, clearTokenExpired } = useAuth();
   const { theme } = useTheme();
   const { t } = useLanguage();
   const [email, setEmail] = useState('');
@@ -18,29 +18,36 @@ export default function Login() {
 
   const styles = createStyles(theme);
 
-  const handleLogin = async () => {
-  if (!email || !password) {
-    Alert.alert(t('error'), t('fillAllFields'));
-    return;
-  }
-
-  setIsLoading(true);
-  try {
-    await login(email, password);
-    router.replace('/(tabs)');
-  } catch (error: any) {
-    // More specific error handling
-    if (error.message.includes('undefined') || error.message.includes('null')) {
-      Alert.alert(t('error'), t('loginFailedTryAgain'));
-    } else if (error.message.includes('token')) {
-      Alert.alert(t('error'), t('authenticationError'));
-    } else {
-      Alert.alert(t('error'), error.message || t('loginFailed'));
+  // Clear token expired flag when component mounts
+  useEffect(() => {
+    if (tokenExpired) {
+      clearTokenExpired();
+      Alert.alert(t('sessionExpired'), t('pleaseLoginAgain'));
     }
-  } finally {
-    setIsLoading(false);
-  }
-};
+  }, [tokenExpired]);
+
+  const handleLogin = async () => {
+    if (!email || !password) {
+      Alert.alert(t('error'), t('fillAllFields'));
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      await login(email, password);
+      router.replace('/(tabs)');
+    } catch (error: any) {
+      if (error.message.includes('undefined') || error.message.includes('null')) {
+        Alert.alert(t('error'), t('loginFailedTryAgain'));
+      } else if (error.message.includes('token') || error.response?.status === 401) {
+        Alert.alert(t('error'), t('authenticationError'));
+      } else {
+        Alert.alert(t('error'), error.message || t('loginFailed'));
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
     <KeyboardAvoidingView 
