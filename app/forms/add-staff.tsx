@@ -1,11 +1,12 @@
 import { View, Text, ScrollView, StyleSheet, TextInput, TouchableOpacity, Alert } from 'react-native';
-import { ArrowLeft, Save, User, Mail, Phone, MapPin, Calendar, Briefcase, CreditCard, IdCard, Building, PoundSterling } from 'lucide-react-native';
+import { ArrowLeft, Save, User, Mail, Phone, MapPin, Calendar, Briefcase, CreditCard, IdCard, Building, PoundSterling, DollarSign, Globe, Euro, IndianRupee } from 'lucide-react-native';
 import { useState, useCallback } from 'react';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { router } from 'expo-router';
 import { staffAPI } from '@/services/api';
+import { useCountryForm } from '@/hooks/useCountryForm';
 
 // Move InputField component outside to prevent re-renders
 const InputField = ({ 
@@ -17,13 +18,16 @@ const InputField = ({
   error,
   icon: Icon,
   multiline = false,
-  theme
+  theme,
+  required = false
 }: any) => {
   const styles = createStyles(theme);
   
   return (
     <View style={styles.inputGroup}>
-      <Text style={styles.inputLabel}>{label}</Text>
+      <Text style={styles.inputLabel}>
+        {label} {required && <Text style={styles.requiredStar}>*</Text>}
+      </Text>
       <View style={[styles.inputContainer, error && styles.inputContainerError]}>
         {Icon && <Icon size={20} color="#6B7280" style={styles.inputIcon} />}
         <TextInput
@@ -43,12 +47,14 @@ const InputField = ({
 };
 
 // Move SelectField component outside
-const SelectField = ({ label, value, onValueChange, options, error, theme }: any) => {
+const SelectField = ({ label, value, onValueChange, options, error, theme, required = false }: any) => {
   const styles = createStyles(theme);
   
   return (
     <View style={styles.inputGroup}>
-      <Text style={styles.inputLabel}>{label}</Text>
+      <Text style={styles.inputLabel}>
+        {label} {required && <Text style={styles.requiredStar}>*</Text>}
+      </Text>
       <View style={styles.selectContainer}>
         {options.map((option: any) => (
           <TouchableOpacity
@@ -73,55 +79,30 @@ const SelectField = ({ label, value, onValueChange, options, error, theme }: any
   );
 };
 
+// Currency icon component
+const CurrencyIcon = ({ country, size = 20, color = "#6B7280" }: { country?: string; size?: number; color?: string }) => {
+  const currencyIcons: Record<string, any> = {
+    UK: PoundSterling,
+    US: DollarSign,
+    AU: DollarSign,
+    NP: IndianRupee,
+    AE: DollarSign, // UAE uses AED, but DollarSign is closest
+  };
+  
+  const IconComponent = currencyIcons[country || 'UK'] || PoundSterling;
+  return <IconComponent size={size} color={color} />;
+};
+
 export default function AddStaff() {
   const { theme } = useTheme();
   const { t } = useLanguage();
   const { user } = useAuth();
-
   const styles = createStyles(theme);
 
-  type StaffFormData = {
-    // Personal Information
-    firstName: string;
-    lastName: string;
-    email: string;
-    phone: string;
-    address: string;
-    dateOfBirth: string;
+  // Use country form hook
+  const { country, setCountry, countryConfig, countryFields } = useCountryForm('UK') as any;
 
-    // Employment Details
-    role: 'staff' | 'admin';
-    position: string;
-    department: string;
-    employmentType: 'full-time' | 'part-time' | 'contract';
-    employmentStartDate: string;
-
-    // Payroll Information
-    employeeRef: string;
-    niNumber: string;
-    taxCode: string;
-    payFrequency: 'monthly' | 'weekly' | 'bi-weekly' | 'fortnightly';
-    paymentMethod: 'BACS' | 'Cheque' | 'Cash';
-
-    // Bank Details
-    bankAccountNumber: string;
-    bankSortCode: string;
-
-    // Pension Information
-    pensionScheme: string;
-    employeePensionRate: string;
-    pensionSalarySacrifice: boolean;
-
-    // Pay Rates
-    defaultHourlyRate: string;
-    defaultSalary: string;
-
-    // Leave Entitlement
-    annualLeaveEntitlementDays: string;
-    annualLeaveEntitlementHours: string;
-  };
-
-  const [formData, setFormData] = useState<StaffFormData>({
+  const [formData, setFormData] = useState({
     // Personal Information
     firstName: '',
     lastName: '',
@@ -137,27 +118,31 @@ export default function AddStaff() {
     employmentType: 'full-time',
     employmentStartDate: '',
     
-    // Payroll Information
+    // Country Selection
+    country: 'UK',
+    
+    // Employee Identification (will vary by country)
     employeeRef: '',
-    niNumber: '',
-    taxCode: '1257L',
-    payFrequency: 'monthly',
-    paymentMethod: 'BACS',
+    identificationNumber: '',
     
-    // Bank Details
+    // Banking
     bankAccountNumber: '',
-    bankSortCode: '',
+    bankDetails: '', // sort_code, routing_number, bsb_code, etc.
     
-    // Pension Information
-    pensionScheme: '',
-    employeePensionRate: '0',
-    pensionSalarySacrifice: false,
+    // Tax Information (will vary by country)
+    taxInfo: '',
     
     // Pay Rates
     defaultHourlyRate: '',
     defaultSalary: '',
     
-    // Leave Entitlement
+    // Pension
+    employeePensionRate: '0',
+    employerPensionRate: '0',
+    pensionSalarySacrifice: false,
+    pensionScheme: '',
+    
+    // Leave
     annualLeaveEntitlementDays: '25',
     annualLeaveEntitlementHours: '200',
   });
@@ -167,12 +152,12 @@ export default function AddStaff() {
   const validateForm = useCallback(() => {
     const newErrors: {[key: string]: string} = {};
 
-    // Required fields
+    // Required fields - MUST FILL
     if (!formData.firstName.trim()) newErrors.firstName = t('firstNameRequired');
     if (!formData.lastName.trim()) newErrors.lastName = t('lastNameRequired');
     if (!formData.email.trim()) newErrors.email = t('emailRequired');
     if (!formData.employeeRef.trim()) newErrors.employeeRef = t('employeeRefRequired');
-    if (!formData.niNumber.trim()) newErrors.niNumber = t('niNumberRequired');
+    if (!formData.identificationNumber.trim()) newErrors.identificationNumber = t('identificationRequired');
     if (!formData.department.trim()) newErrors.department = t('departmentRequired');
     if (!formData.employmentStartDate.trim()) newErrors.employmentStartDate = t('startDateRequired');
 
@@ -182,107 +167,132 @@ export default function AddStaff() {
       newErrors.email = t('invalidEmail');
     }
 
-    // NI Number validation (basic UK format)
-    const niRegex = /^[A-Z]{2}[0-9]{6}[A-Z]{1}$/;
-    if (formData.niNumber && !niRegex.test(formData.niNumber.replace(/\s/g, ''))) {
-      newErrors.niNumber = t('invalidNiNumber');
-    }
-
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   }, [formData, t]);
 
   const handleSave = useCallback(async () => {
-  if (!validateForm()) {
-    Alert.alert(t('error'), t('pleaseFixErrors'));
-    return;
-  }
-
-  try {
-    // Prepare data for API call
-    const staffData = {
-      // Personal Info
-      first_name: formData.firstName,
-      last_name: formData.lastName,
-      email: formData.email,
-      phone_number: formData.phone || undefined,
-      address: formData.address || undefined,
-      date_of_birth: formData.dateOfBirth || undefined,
-      
-      // Employment
-      role: formData.role,
-      position: formData.position || undefined,
-      department: formData.department,
-      employment_type: formData.employmentType,
-      employment_start_date: formData.employmentStartDate,
-      
-      // Payroll
-      employee_ref: formData.employeeRef,
-      ni_number: formData.niNumber,
-      tax_code: formData.taxCode,
-      pay_frequency: formData.payFrequency,
-      payment_method: formData.paymentMethod,
-      
-      // Bank
-      bank_account_number: formData.bankAccountNumber || undefined,
-      bank_sort_code: formData.bankSortCode || undefined,
-      
-      // Pension
-      pension_scheme: formData.pensionScheme || undefined,
-      employee_pension_rate: parseFloat(formData.employeePensionRate) || 0,
-      pension_salary_sacrifice: formData.pensionSalarySacrifice,
-      
-      // Pay Rates
-      default_hourly_rate: formData.defaultHourlyRate ? parseFloat(formData.defaultHourlyRate) : undefined,
-      default_salary: formData.defaultSalary ? parseFloat(formData.defaultSalary) : undefined,
-      
-      // Leave
-      annual_leave_entitlement_days: parseInt(formData.annualLeaveEntitlementDays) || 25,
-      annual_leave_entitlement_hours: parseInt(formData.annualLeaveEntitlementHours) || 200,
-      
-      // Temporary password (user should change this later)
-      password: 'TempPassword123!', // You might want to generate this or make it configurable
-    };
-
-    console.log('Creating staff member:', staffData);
-    
-    // Make API call
-    const response = await staffAPI.createStaff(staffData);
-    
-    console.log('Staff creation response:', response.data);
-    
-    Alert.alert(
-      t('success'), 
-      t('staffMemberAdded'),
-      [
-        { 
-          text: t('ok'), 
-          onPress: () => router.back() 
-        }
-      ]
-    );
-    
-  } catch (error: any) {
-    console.error('Error creating staff member:', error);
-    
-    let errorMessage = t('failedToAddStaff');
-    
-    // Handle different error types
-    if (error.response?.data?.message) {
-      errorMessage = error.response.data.message;
-    } else if (error.response?.data?.error) {
-      errorMessage = error.response.data.error;
-    } else if (error.message) {
-      errorMessage = error.message;
+    if (!validateForm()) {
+      Alert.alert(t('error'), t('pleaseFixErrors'));
+      return;
     }
-    
-    Alert.alert(t('error'), errorMessage);
-  }
-}, [validateForm, formData, t]);
+
+    try {
+      // Prepare data in the new flexible format
+      const staffData = {
+        // Core Info
+        first_name: formData.firstName,
+        last_name: formData.lastName,
+        email: formData.email,
+        phone_number: formData.phone || undefined,
+        address: formData.address || undefined,
+        date_of_birth: formData.dateOfBirth || undefined,
+        
+        // Employment
+        role: formData.role as 'staff' | 'admin',
+        position: formData.position || undefined,
+        department: formData.department,
+        employment: {
+          employment_type: formData.employmentType,
+          start_date: formData.employmentStartDate,
+        },
+        
+        // Country
+        country: formData.country,
+        
+        // Identification (country-specific)
+        identification: {
+          employee_ref: formData.employeeRef,
+          [countryConfig?.identification?.key || 'ni_number']: formData.identificationNumber
+        },
+        
+        // Tax Info (country-specific)
+        tax_info: countryConfig?.tax?.key ? {
+          [countryConfig.tax.key]: formData.taxInfo || countryConfig.tax.value
+        } : {},
+        
+        // Payment Method
+        payment_method: {
+          method: 'BACS', // Default, can be made dynamic
+          account_number: formData.bankAccountNumber,
+          ...(countryConfig?.banking?.key && { 
+            [countryConfig.banking.key]: formData.bankDetails 
+          })
+        },
+        
+        // Pay Rates
+        pay_rates: {
+          ...(formData.defaultHourlyRate && { 
+            default_hourly_rate: parseFloat(formData.defaultHourlyRate) 
+          }),
+          ...(formData.defaultSalary && { 
+            default_salary: parseFloat(formData.defaultSalary) 
+          }),
+        },
+        
+        // Pension
+        pension: {
+          scheme_name: formData.pensionScheme || undefined,
+          employee_contribution_rate: parseFloat(formData.employeePensionRate) || 0,
+          employer_contribution_rate: parseFloat(formData.employerPensionRate) || 0,
+          pension_salary_sacrifice: formData.pensionSalarySacrifice,
+        },
+        
+        // Leave configuration
+        leave_config: {
+          annual_leave_days: parseInt(formData.annualLeaveEntitlementDays) || 25,
+          annual_leave_hours: parseInt(formData.annualLeaveEntitlementHours) || 200,
+        },
+        
+        // Temporary password
+        password: 'TempPassword123!',
+      };
+
+      console.log('Creating staff with data:', staffData);
+      
+      // Make API call
+      const response = await staffAPI.createStaff(staffData);
+      
+      Alert.alert(
+        t('success'), 
+        t('staffMemberAdded'),
+        [
+          { 
+            text: t('ok'), 
+            onPress: () => router.back() 
+          }
+        ]
+      );
+      
+    } catch (error: any) {
+      console.error('Error creating staff member:', error);
+      
+      let errorMessage = t('failedToAddStaff');
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.response?.data?.error) {
+        errorMessage = error.response.data.error;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      Alert.alert(t('error'), errorMessage);
+    }
+  }, [validateForm, formData, countryConfig, t]);
 
   const updateFormField = useCallback((field: string) => (value: string | boolean) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   }, []);
+
+  // Update country and reset country-specific fields
+  const handleCountryChange = useCallback((newCountry: string) => {
+    setCountry(newCountry);
+    updateFormField('country')(newCountry);
+    // Reset country-specific fields
+    updateFormField('identificationNumber')('');
+    updateFormField('taxInfo')('');
+    updateFormField('bankDetails')('');
+  }, [updateFormField, setCountry]);
 
   return (
     <View style={styles.container}>
@@ -297,6 +307,42 @@ export default function AddStaff() {
       </View>
 
       <ScrollView style={styles.content}>
+        {/* Required Fields Notice */}
+        <View style={styles.requiredNotice}>
+          <Text style={styles.requiredNoticeText}>
+            {t('requiredFieldsNotice')}
+          </Text>
+        </View>
+
+        {/* Country Selection */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>{t('countryConfiguration')}</Text>
+          
+          <SelectField
+            label={t('country')}
+            value={country}
+            onValueChange={handleCountryChange}
+            options={countryFields.map((countryCode: string) => ({
+              value: countryCode,
+              label: t(countryCode)
+            }))}
+            error={errors.country}
+            theme={theme}
+            required={true}
+          />
+
+          {countryConfig && (
+            <View style={styles.countryInfo}>
+              <View style={styles.currencyRow}>
+                <CurrencyIcon country={country} />
+                <Text style={styles.countryInfoText}>
+                  {t('selectedCountry')}: {t(country)} - {t('currency')}: {countryConfig.currency}
+                </Text>
+              </View>
+            </View>
+          )}
+        </View>
+
         {/* Personal Information Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t('personalInformation')}</Text>
@@ -309,6 +355,7 @@ export default function AddStaff() {
             error={errors.firstName}
             icon={User}
             theme={theme}
+            required={true}
           />
 
           <InputField
@@ -319,6 +366,7 @@ export default function AddStaff() {
             error={errors.lastName}
             icon={User}
             theme={theme}
+            required={true}
           />
 
           <InputField
@@ -330,6 +378,7 @@ export default function AddStaff() {
             error={errors.email}
             icon={Mail}
             theme={theme}
+            required={true}
           />
 
           <InputField
@@ -379,6 +428,7 @@ export default function AddStaff() {
             ]}
             error={errors.role}
             theme={theme}
+            required={true}
           />
 
           <InputField
@@ -399,6 +449,7 @@ export default function AddStaff() {
             error={errors.department}
             icon={Building}
             theme={theme}
+            required={true}
           />
 
           <SelectField
@@ -422,12 +473,13 @@ export default function AddStaff() {
             error={errors.employmentStartDate}
             icon={Calendar}
             theme={theme}
+            required={true}
           />
         </View>
-
-        {/* Payroll Information Section */}
+        
+        {/* Country-Specific Identification */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t('payrollInformation')}</Text>
+          <Text style={styles.sectionTitle}>{t('employeeIdentification')}</Text>
           
           <InputField
             label={t('employeeRef')}
@@ -437,57 +489,43 @@ export default function AddStaff() {
             error={errors.employeeRef}
             icon={IdCard}
             theme={theme}
+            required={true}
           />
 
-          <InputField
-            label={t('niNumber')}
-            value={formData.niNumber}
-            onChangeText={updateFormField('niNumber')}
-            placeholder="AB123456C"
-            error={errors.niNumber}
-            icon={IdCard}
-            theme={theme}
-          />
+          {countryConfig?.identification && (
+            <InputField
+              label={countryConfig.identification.label}
+              value={formData.identificationNumber}
+              onChangeText={updateFormField('identificationNumber')}
+              placeholder={countryConfig.identification.placeholder}
+              error={errors.identificationNumber}
+              icon={IdCard}
+              theme={theme}
+              required={true}
+            />
+          )}
 
-          <InputField
-            label={t('taxCode')}
-            value={formData.taxCode}
-            onChangeText={updateFormField('taxCode')}
-            placeholder="1257L"
-            error={errors.taxCode}
-            icon={CreditCard}
-            theme={theme}
-          />
+          {countryConfig?.tax && !countryConfig.tax.readonly && (
+            <InputField
+              label={countryConfig.tax.label}
+              value={formData.taxInfo}
+              onChangeText={updateFormField('taxInfo')}
+              placeholder={countryConfig.tax.placeholder}
+              error={errors.taxInfo}
+              icon={CreditCard}
+              theme={theme}
+            />
+          )}
 
-          <SelectField
-            label={t('payFrequency')}
-            value={formData.payFrequency}
-            onValueChange={updateFormField('payFrequency')}
-            options={[
-              { value: 'monthly', label: t('monthly') },
-              { value: 'weekly', label: t('weekly') },
-              { value: 'bi-weekly', label: t('biWeekly') },
-              { value: 'fortnightly', label: t('fortnightly') }
-            ]}
-            error={errors.payFrequency}
-            theme={theme}
-          />
-
-          <SelectField
-            label={t('paymentMethod')}
-            value={formData.paymentMethod}
-            onValueChange={updateFormField('paymentMethod')}
-            options={[
-              { value: 'BACS', label: t('bacs') },
-              { value: 'Cheque', label: t('cheque') },
-              { value: 'Cash', label: t('cash') }
-            ]}
-            error={errors.paymentMethod}
-            theme={theme}
-          />
+          {countryConfig?.tax?.readonly && (
+            <View style={styles.readonlyField}>
+              <Text style={styles.readonlyLabel}>{countryConfig.tax.label}</Text>
+              <Text style={styles.readonlyValue}>{countryConfig.tax.value}</Text>
+            </View>
+          )}
         </View>
 
-        {/* Bank Details Section */}
+        {/* Banking Details */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t('bankDetails')}</Text>
           
@@ -502,15 +540,17 @@ export default function AddStaff() {
             theme={theme}
           />
 
-          <InputField
-            label={t('bankSortCode')}
-            value={formData.bankSortCode}
-            onChangeText={updateFormField('bankSortCode')}
-            placeholder="12-34-56"
-            error={errors.bankSortCode}
-            icon={CreditCard}
-            theme={theme}
-          />
+          {countryConfig?.banking && (
+            <InputField
+              label={countryConfig.banking.label}
+              value={formData.bankDetails}
+              onChangeText={updateFormField('bankDetails')}
+              placeholder={countryConfig.banking.placeholder}
+              error={errors.bankDetails}
+              icon={CreditCard}
+              theme={theme}
+            />
+          )}
         </View>
 
         {/* Pension & Pay Rates Section */}
@@ -528,13 +568,24 @@ export default function AddStaff() {
           />
 
           <InputField
-            label={t('employeePensionRate')}
+            label={t('employeePensionRate') + ' (%)'}
             value={formData.employeePensionRate}
             onChangeText={updateFormField('employeePensionRate')}
             placeholder="5.0"
             keyboardType="numeric"
             error={errors.employeePensionRate}
-            icon={PoundSterling}
+            icon={() => <CurrencyIcon country={country} />}
+            theme={theme}
+          />
+
+          <InputField
+            label={t('employerPensionRate') + ' (%)'}
+            value={formData.employerPensionRate}
+            onChangeText={updateFormField('employerPensionRate')}
+            placeholder="3.0"
+            keyboardType="numeric"
+            error={errors.employerPensionRate}
+            icon={() => <CurrencyIcon country={country} />}
             theme={theme}
           />
 
@@ -557,7 +608,7 @@ export default function AddStaff() {
             placeholder="12.50"
             keyboardType="numeric"
             error={errors.defaultHourlyRate}
-            icon={PoundSterling}
+            icon={() => <CurrencyIcon country={country} />}
             theme={theme}
           />
 
@@ -568,7 +619,7 @@ export default function AddStaff() {
             placeholder="25000"
             keyboardType="numeric"
             error={errors.defaultSalary}
-            icon={PoundSterling}
+            icon={() => <CurrencyIcon country={country} />}
             theme={theme}
           />
 
@@ -714,6 +765,58 @@ function createStyles(theme: string) {
       fontSize: 16,
       fontWeight: '600',
       color: '#FFFFFF',
+    },
+    countryInfo: {
+      backgroundColor: isDark ? '#374151' : '#F3F4F6',
+      padding: 12,
+      borderRadius: 8,
+      marginBottom: 16,
+    },
+    currencyRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    countryInfoText: {
+      fontSize: 14,
+      color: isDark ? '#D1D5DB' : '#4B5563',
+      textAlign: 'center',
+    },
+    readonlyField: {
+      backgroundColor: isDark ? '#374151' : '#F9FAFB',
+      padding: 16,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: isDark ? '#4B5563' : '#E5E7EB',
+      marginBottom: 16,
+    },
+    readonlyLabel: {
+      fontSize: 14,
+      fontWeight: '500',
+      color: isDark ? '#9CA3AF' : '#6B7280',
+      marginBottom: 4,
+    },
+    readonlyValue: {
+      fontSize: 16,
+      color: isDark ? '#F9FAFB' : '#111827',
+    },
+    requiredStar: {
+      color: '#EF4444',
+      fontSize: 16,
+    },
+    requiredNotice: {
+      backgroundColor: isDark ? '#1F2937' : '#EFF6FF',
+      padding: 12,
+      marginHorizontal: 20,
+      marginTop: 10,
+      borderRadius: 8,
+      borderLeftWidth: 4,
+      borderLeftColor: '#2563EB',
+    },
+    requiredNoticeText: {
+      fontSize: 12,
+      color: isDark ? '#D1D5DB' : '#374151',
+      fontWeight: '500',
     },
   });
 }

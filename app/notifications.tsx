@@ -80,8 +80,7 @@ export default function Notifications() {
           <X size={24} color={theme === 'dark' ? '#F9FAFB' : '#374151'} />
         </ForceTouchable>
         <Text style={styles.title}>{t('notifications')}</Text>
-        {user?.role === 
-        'manager' && (
+        {user?.role === 'admin' && (
           <ForceTouchable style={styles.addButton}>
             <Plus size={24} color="#FFFFFF" />
           </ForceTouchable>

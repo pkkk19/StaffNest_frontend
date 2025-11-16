@@ -4,7 +4,9 @@ import { StatusBar } from 'expo-status-bar';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { LanguageProvider } from '@/contexts/LanguageContext';
-import { View} from 'react-native';
+import { ChatProvider } from '@/contexts/ChatContext';
+import { SocketProvider } from '@/contexts/SocketContext';
+import { View } from 'react-native';
 
 function RootLayoutNav() {
   const { isAuthenticated, tokenExpired } = useAuth();
@@ -13,7 +15,6 @@ function RootLayoutNav() {
 
   useEffect(() => {
     const timeout = setTimeout(() => {
-      // Redirect to login if token is expired
       if (tokenExpired) {
         router.replace('/login');
         return;
@@ -31,32 +32,36 @@ function RootLayoutNav() {
 
   return (
     <>
-    <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="login" />
-      <Stack.Screen name="signup" />
-      <Stack.Screen name="(tabs)" />
-      <Stack.Screen name="notifications" />
-      <Stack.Screen name="staff-details" />
-      <Stack.Screen name="edit-profile" />
-      <Stack.Screen name="forms/add-staff" />
-      <Stack.Screen name="payslips" />
-      <Stack.Screen name="+not-found" />
-    </Stack>
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="login" />
+        <Stack.Screen name="signup" />
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="chat" />
+        <Stack.Screen name="notifications" />
+        <Stack.Screen name="staff-details" />
+        <Stack.Screen name="edit-profile" />
+        <Stack.Screen name="forms/add-staff" />
+        <Stack.Screen name="payslips" />
+        <Stack.Screen name="+not-found" />
+      </Stack>
     </>
   );
 }
 
 export default function RootLayout() {
-  
-
-
   return (
     <View style={{ flex: 1 }}>
       <AuthProvider>
         <ThemeProvider>
           <LanguageProvider>
-            <RootLayoutNav />
-            <StatusBar style="auto" />
+            {/* ChatProvider must be inside AuthProvider since it uses useAuth */}
+            <ChatProvider>
+              {/* SocketProvider must be inside ChatProvider if it uses useChat */}
+              <SocketProvider>
+                <RootLayoutNav />
+                <StatusBar style="auto" />
+              </SocketProvider>
+            </ChatProvider>
           </LanguageProvider>
         </ThemeProvider>
       </AuthProvider>

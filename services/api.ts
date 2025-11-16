@@ -8,9 +8,9 @@ const LOCAL_IP = '192.168.1.67'; // Your computer's IP
 
 const getBaseURL = () => {
   if (USE_NGROK) {
-    return 'https://804c45252eb1.ngrok-free.app';
+    return 'https://19361c151255.ngrok-free.app';
   } else {
-    return `http://${LOCAL_IP}:3000`;
+    return `http://localhost:3000`;
   }
 };
 
@@ -58,15 +58,15 @@ api.interceptors.response.use(
       // Handle token expiration (401 Unauthorized)
       if (error.response.status === 401) {
         console.log('🔄 Token expired, removing from storage');
-        
+
         try {
           // Remove the expired token
           await AsyncStorage.removeItem('authaccess_token');
-          
+
           // You can also emit an event or use a global state to notify the app
           // For now, we'll just log and let the component handle the redirect
           console.log('🔑 Token removed due to expiration');
-          
+
           // You could also show an alert here if needed
           // Alert.alert('Session Expired', 'Please login again');
         } catch (storageError) {
@@ -81,9 +81,9 @@ api.interceptors.response.use(
 
 // Auth API calls
 export const authAPI = {
-  login: (email: string, password: string) => 
+  login: (email: string, password: string) =>
     api.post('/auth/login', { email, password }),
-  
+
   register: (userData: {
     email: string;
     password: string;
@@ -110,7 +110,7 @@ export const companiesAPI = {
     logo_url?: string;
   }) => api.post('/companies', companyData),
   getCompany: (id: string) => api.get(`/companies/${id}`),
-  updateCompany: (id: string, companyData: any) => 
+  updateCompany: (id: string, companyData: any) =>
     api.put(`/companies/${id}`, companyData),
   deleteCompany: (id: string) => api.delete(`/companies/${id}`),
 };
@@ -129,7 +129,7 @@ export const shiftsAPI = {
     notes?: string;
   }) => api.post('/shifts', shiftData),
   getShift: (id: string) => api.get(`/shifts/${id}`),
-  updateShift: (id: string, shiftData: any) => 
+  updateShift: (id: string, shiftData: any) =>
     api.put(`/shifts/${id}`, shiftData),
   deleteShift: (id: string) => api.delete(`/shifts/${id}`),
   clockIn: (id: string, data?: {
@@ -158,74 +158,144 @@ export const rotaAPI = {
     notes?: string;
   }) => api.post('/rota', rotaData),
   getRotaItem: (id: string) => api.get(`/rota/${id}`),
-  updateRotaItem: (id: string, rotaData: any) => 
+  updateRotaItem: (id: string, rotaData: any) =>
     api.put(`/rota/${id}`, rotaData),
   deleteRotaItem: (id: string) => api.delete(`/rota/${id}`),
 };
 
-// Add this to your existing API exports in api.ts
-
-// Staff API calls
 export const staffAPI = {
-  // Create a new staff member with payroll data
   createStaff: (staffData: {
-    // Personal Information
+    // Core fields
+    email: string;
+    password?: string;
     first_name: string;
     last_name: string;
-    email: string;
-    phone_number?: string;
-    address?: string;
-    date_of_birth?: string;
-    
-    // Employment Details
     role: 'admin' | 'staff';
     position?: string;
-    department?: string;
-    employment_type?: 'full-time' | 'part-time' | 'contract';
-    employment_start_date?: string;
-    
-    // Payroll Information
-    employee_ref: string;
-    ni_number: string;
-    tax_code?: string;
-    pay_frequency?: 'monthly' | 'weekly' | 'bi-weekly' | 'fortnightly';
-    payment_method?: 'BACS' | 'Cheque' | 'Cash';
-    
-    // Bank Details
-    bank_account_number?: string;
-    bank_sort_code?: string;
-    
-    // Pension Information
-    pension_scheme?: string;
-    employee_pension_rate?: number;
-    pension_salary_sacrifice?: boolean;
-    
-    // Pay Rates
-    default_hourly_rate?: number;
-    default_salary?: number;
-    
-    // Leave Entitlement
-    annual_leave_entitlement_days?: number;
-    annual_leave_entitlement_hours?: number;
-    
-    // Password (required for user creation)
-    password: string;
+    phone_number?: string;
+    date_of_birth?: string;
+    address?: string;
+
+    // Country selection
+    country: string;
+
+    // Flexible payroll data
+    identification?: {
+      employee_ref: string;
+      // Country-specific IDs will be shown based on selected country
+      ni_number?: string;    // UK
+      ssn?: string;          // US  
+      tfn?: string;          // AU
+      pan?: string;          // NP
+      uae_id?: string;       // AE
+    };
+
+    tax_info?: {
+      // Will be populated based on country
+      tax_code?: string;     // UK
+      filing_status?: string; // US
+      tax_scale?: string;    // AU
+      tax_slab?: string;     // NP
+    };
+
+    payment_method?: {
+      method: string;
+      // Country-specific banking
+      sort_code?: string;      // UK
+      routing_number?: string; // US
+      bsb_code?: string;       // AU
+      account_number?: string;
+    };
+
+    employment?: {
+      department?: string;
+      employment_type?: string;
+      pay_frequency?: string;
+      start_date?: string;
+      working_hours_per_week?: number;
+    };
+
+    pay_rates?: {
+      default_hourly_rate?: number;
+      default_salary?: number;
+      overtime_rate?: number;
+    };
+
+    pension?: {
+      employee_contribution_rate?: number;
+      employer_contribution_rate?: number;
+      is_salary_sacrifice?: boolean;
+    };
+
+    // Custom payment/deduction types can be added later
+    payment_types?: any[];
+    deduction_types?: any[];
+
   }) => api.post('/users', staffData),
-  
+
   // Get all staff members
   getStaff: () => api.get('/users'),
-  
+
   // Get staff members only (non-admin)
   getStaffMembers: () => api.get('/users/staff'),
-  
+
   // Get specific staff member
   getStaffMember: (id: string) => api.get(`/users/${id}`),
-  
+
   // Update staff member
   updateStaff: (id: string, staffData: any) => api.patch(`/users/${id}`, staffData),
-  
+
   // Delete staff member
   deleteStaff: (id: string) => api.delete(`/users/${id}`),
+};
+
+export const chatAPI = {
+  // Get conversations list
+  getConversations: () => api.get('/chat/conversations'),
+
+  // Create new conversation
+  createConversation: (participantIds: string[], name?: string) =>
+    api.post('/chat/conversations', { participantIds, name }),
+
+  // Get messages for a conversation
+  getMessages: (conversationId: string, page: number = 1) =>
+    api.get(`/chat/conversations/${conversationId}/messages?page=${page}`),
+
+  // Send a message
+  sendMessage: (conversationId: string, content: string) =>
+    api.post(`/chat/conversations/${conversationId}/messages`, { content }),
+
+  // Mark messages as read
+  markAsRead: (conversationId: string, messageIds: string[]) =>
+    api.put(`/chat/conversations/${conversationId}/read`, { messageIds }),
+};
+
+export const contactsAPI = {
+  // Search users
+  searchUsers: (query: string) => api.get(`/contacts/search?q=${encodeURIComponent(query)}`),
+
+  // Send friend request
+  sendFriendRequest: (toUserId: string, message?: string) =>
+    api.post('/contacts/friend-requests', { toUserId, message }),
+
+  // Get pending requests
+  getPendingRequests: () => api.get('/contacts/friend-requests/pending'),
+
+  // Respond to friend request
+  respondToRequest: (requestId: string, action: 'accepted' | 'rejected') =>
+    api.put('/contacts/friend-requests/respond', { requestId, action }),
+
+  // Get friends list
+  getFriends: () => api.get('/contacts/friends'),
+
+  // Remove friend
+  removeFriend: (friendId: string) => api.delete(`/contacts/friends/${friendId}`),
+
+  // Generate QR code for user
+  generateQRCode: () => api.get('/contacts/qr-code'),
+
+  // Add friend by QR code
+  addFriendByQR: (qrData: string) => api.post('/contacts/qr-add', { qrData }),
 };
 
 export default api;

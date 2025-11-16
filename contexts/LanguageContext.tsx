@@ -186,74 +186,107 @@ const translations: Record<Language, TranslationStrings> = {
     locationRequiredMessage: 'Location access is required for clock-in. Please enable location permissions.',
     enableLocation: 'Enable Location',
 
-    // Add Staff
-    addStaffMember: 'Add Staff Member',
-    enterFirstName: 'Enter first name',
-    enterLastName: 'Enter last name',
-    enterDepartment: 'Enter department',
-    supervisor: 'Supervisor',
-    mainBranch: 'Main Branch',
-    secondaryBranch: 'Secondary Branch',
-    remote: 'Remote',
-    contractType: 'Contract Type',
-    fullTime: 'Full Time',
-    partTime: 'Part Time',
-    contract: 'Contract',
-    temporary: 'Temporary',
-    workingHoursPerWeek: 'Working Hours per Week',
-    salary: 'Salary',
-    firstNameRequired: 'First name is required',
-    lastNameRequired: 'Last name is required',
-    emailRequired: 'Email is required',
-    phoneRequired: 'Phone number is required',
-    departmentRequired: 'Department is required',
-    startDateRequired: 'Start date is required',
-    invalidEmail: 'Please enter a valid email address',
-    pleaseFixErrors: 'Please fix the errors before submitting',
-    staffMemberAdded: 'Staff member added successfully',
-    accessDenied: 'Access Denied',
-    managerAccessOnly: 'Only managers can access this feature',
-
-    // New fields
+  // Page Title
+  "addStaffMember": "Add Staff Member",
+  
+  // Required Fields Notice
+  "requiredFieldsNotice": "Fields marked with * are required",
+  
+  // Section Titles
+  "countryConfiguration": "Country Configuration",
+  "employeeIdentification": "Employee Identification",
+  "bankDetails": "Bank Details",
+  "pensionAndPay": "Pension & Pay",
+  
+  // Country Names
+  "UK": "United Kingdom",
+  "US": "United States",
+  "AU": "Australia", 
+  "NP": "Nepal",
+  "AE": "United Arab Emirates",
+  
+  // Field Labels - Personal Information
+  
+  // Field Labels - Employment
+  "role": "Role",
+  "position": "Position",
+  "department": "Department",
+  "employmentType": "Employment Type",
+  "employmentStartDate": "Employment Start Date",
+  
+  // Field Labels - Identification
   "employeeRef": "Employee Reference",
-  "employeeRefRequired": "Employee reference is required",
-  "niNumber": "NI Number",
-  "niNumberRequired": "NI Number is required",
-  "invalidNiNumber": "Invalid NI Number format",
-  "taxCode": "Tax Code",
-  "payFrequency": "Pay Frequency",
-  "paymentMethod": "Payment Method",
+  "identificationNumber": "Identification Number",
+  
+  // Field Labels - Banking
   "bankAccountNumber": "Bank Account Number",
-  "bankSortCode": "Sort Code",
+  
+  // Field Labels - Pension & Pay
   "pensionScheme": "Pension Scheme",
-  "employeePensionRate": "Employee Pension Rate (%)",
+  "employeePensionRate": "Employee Pension Rate",
+  "employerPensionRate": "Employer Pension Rate", 
   "pensionSalarySacrifice": "Salary Sacrifice Pension",
   "defaultHourlyRate": "Default Hourly Rate",
   "defaultSalary": "Default Salary",
   "annualLeaveEntitlementDays": "Annual Leave (Days)",
   "annualLeaveEntitlementHours": "Annual Leave (Hours)",
-  "employmentType": "Employment Type",
-  "employmentStartDate": "Employment Start Date",
-  "position": "Position",
+  
+  // Country-Specific Field Labels
+  "niNumber": "NI Number",
+  "ssn": "Social Security Number",
+  "tfn": "Tax File Number", 
+  "panNumber": "PAN Number",
+  "uaeId": "UAE ID Number",
+  "taxCode": "Tax Code",
+  "filingStatus": "Filing Status",
+  "taxScale": "Tax Scale",
+  "taxSlab": "Tax Slab",
+  "taxStatus": "Tax Status",
+  "sortCode": "Sort Code",
+  "routingNumber": "Routing Number", 
+  "bsbCode": "BSB Code",
+  "iban": "IBAN",
+  "bankName": "Bank Name",
   
   // Options
-  "monthly": "Monthly",
-  "weekly": "Weekly",
-  "biWeekly": "Bi-Weekly",
-  "fortnightly": "Fortnightly",
-  "bacs": "BACS",
-  "cheque": "Cheque",
-  "cash": "Cash",
+  "admin": "Admin",
+  "fullTime": "Full Time",
+  "partTime": "Part Time",
+  "contract": "Contract", 
   "yes": "Yes",
   "no": "No",
+  "single": "Single",
+  "married": "Married",
+  "taxFree": "Tax Free",
   
-  // Section titles
-  "payrollInformation": "Payroll Information",
-  "bankDetails": "Bank Details",
-  "pensionAndPay": "Pension & Pay Rates",
-
-  // Add these to your translation files
+  // Placeholders
+  "enterFirstName": "Enter first name",
+  "enterLastName": "Enter last name", 
+  "enterPosition": "Enter position",
+  "enterDepartment": "Enter department",
+  "enterEmployeeRef": "Enter employee reference",
+  "enterBankAccountNumber": "Enter bank account number",
+  "enterPensionScheme": "Enter pension scheme name",
+  
+  // Country Info
+  "country": "Country",
+  "selectedCountry": "Selected Country", 
+  "currency": "Currency",
+  
+  // Validation Messages
+  "firstNameRequired": "First name is required",
+  "lastNameRequired": "Last name is required",
+  "emailRequired": "Email is required",
+  "invalidEmail": "Please enter a valid email address",
+  "employeeRefRequired": "Employee reference is required",
+  "identificationRequired": "Identification number is required", 
+  "departmentRequired": "Department is required",
+  "startDateRequired": "Employment start date is required",
+  
+  // Success/Error Messages
+  "staffMemberAdded": "Staff member added successfully",
   "failedToAddStaff": "Failed to add staff member",
+  "pleaseFixErrors": "Please fix the errors before saving",
   },
   ne: {
     // Dashboard
