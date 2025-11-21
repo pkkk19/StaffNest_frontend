@@ -12,12 +12,14 @@ import {
   Modal,
   Alert,
   RefreshControl,
-  ActivityIndicator
+  ActivityIndicator,
+  Platform
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { chatService } from '@/services/chatService';
 import { useAuth } from '@/contexts/AuthContext';
+import { useTheme } from '@/contexts/ThemeContext';
 
 interface Conversation {
   _id: string;
@@ -38,6 +40,10 @@ const ChatApp = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const { user } = useAuth();
+  const { theme } = useTheme();
+
+  const isDark = theme === 'dark';
+  const styles = createStyles(isDark);
 
   useEffect(() => {
     loadConversations();
@@ -164,7 +170,7 @@ const ChatApp = () => {
   if (loading && conversations.length === 0) {
     return (
       <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+        <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#111827' : '#fff'} />
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Messages</Text>
           <TouchableOpacity 
@@ -184,7 +190,7 @@ const ChatApp = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#111827' : '#fff'} />
       
       {/* Header with Add Contact Button */}
       <View style={styles.header}>
@@ -204,7 +210,7 @@ const ChatApp = () => {
           placeholder="Search messages..."
           value={searchQuery}
           onChangeText={setSearchQuery}
-          placeholderTextColor="#999"
+          placeholderTextColor={isDark ? '#9CA3AF' : '#999'}
         />
       </View>
 
@@ -218,12 +224,15 @@ const ChatApp = () => {
         refreshControl={
           <RefreshControl 
             refreshing={refreshing} 
-            onRefresh={onRefresh} 
+            onRefresh={onRefresh}
+            colors={['#007AFF']}
+            tintColor={isDark ? '#007AFF' : '#007AFF'}
+            style={styles.refreshControl}
           />
         }
         ListEmptyComponent={
           <View style={styles.emptyState}>
-            <Ionicons name="chatbubble-outline" size={64} color="#ccc" />
+            <Ionicons name="chatbubble-outline" size={64} color={isDark ? '#4B5563' : '#ccc'} />
             <Text style={styles.emptyStateText}>No conversations yet</Text>
             <Text style={styles.emptyStateSubtext}>
               Start a conversation by adding contacts
@@ -248,7 +257,7 @@ const ChatApp = () => {
         <Text style={styles.newChatText}>New Chat</Text>
       </TouchableOpacity>
 
-      {/* New Chat Modal - We'll implement this later */}
+      {/* New Chat Modal */}
       <Modal
         visible={newChatModal}
         animationType="slide"
@@ -274,32 +283,31 @@ const ChatApp = () => {
   );
 };
 
-const styles = StyleSheet.create({
-  // Original styles from your file
+const createStyles = (isDark: boolean) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: isDark ? '#111827' : '#fff',
   },
   header: {
     paddingHorizontal: 20,
-    paddingTop: 60,
+    paddingTop: Platform.OS === 'ios' ? 16 : 60,
     paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: isDark ? '#374151' : '#f0f0f0',
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: isDark ? '#111827' : '#fff',
   },
   headerTitle: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#000',
+    color: isDark ? '#F9FAFB' : '#000',
   },
   addContactButton: {
     paddingHorizontal: 16,
     paddingVertical: 8,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: isDark ? '#1F2937' : '#f8f9fa',
     borderRadius: 16,
     borderWidth: 1,
     borderColor: '#007AFF',
@@ -314,12 +322,12 @@ const styles = StyleSheet.create({
     paddingTop: 12,
   },
   searchInput: {
-    backgroundColor: '#f5f5f5',
+    backgroundColor: isDark ? '#1F2937' : '#f5f5f5',
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 12,
     fontSize: 16,
-    color: '#000',
+    color: isDark ? '#F9FAFB' : '#000',
   },
   chatList: {
     paddingHorizontal: 16,
@@ -330,7 +338,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#f8f8f8',
+    borderBottomColor: isDark ? '#374151' : '#f8f8f8',
   },
   avatar: {
     width: 50,
@@ -358,19 +366,19 @@ const styles = StyleSheet.create({
   name: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#000',
+    color: isDark ? '#F9FAFB' : '#000',
   },
   timestamp: {
     fontSize: 13,
-    color: '#999',
+    color: isDark ? '#9CA3AF' : '#999',
   },
   lastMessage: {
     fontSize: 14,
-    color: '#666',
+    color: isDark ? '#D1D5DB' : '#666',
     lineHeight: 20,
   },
   unreadMessage: {
-    color: '#000',
+    color: isDark ? '#F9FAFB' : '#000',
     fontWeight: '500',
   },
   unreadIndicator: {
@@ -381,6 +389,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 8,
+  },
+  unreadCount: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
   },
   newChatButton: {
     position: 'absolute',
@@ -397,6 +410,7 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
   },
   newChatText: {
     color: '#fff',
@@ -411,7 +425,7 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   modalContent: {
-    backgroundColor: 'white',
+    backgroundColor: isDark ? '#1F2937' : 'white',
     borderRadius: 16,
     padding: 24,
     width: '100%',
@@ -422,16 +436,22 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginBottom: 16,
     textAlign: 'center',
-    color: '#000',
+    color: isDark ? '#F9FAFB' : '#000',
+  },
+  modalSubtitle: {
+    fontSize: 16,
+    color: isDark ? '#D1D5DB' : '#666',
+    textAlign: 'center',
+    marginBottom: 20,
   },
   contactItem: {
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: isDark ? '#374151' : '#f0f0f0',
   },
   contactName: {
     fontSize: 16,
-    color: '#000',
+    color: isDark ? '#F9FAFB' : '#000',
     fontWeight: '500',
   },
   cancelButton: {
@@ -439,9 +459,10 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     marginTop: 8,
+    backgroundColor: isDark ? '#374151' : '#f3f4f6',
   },
   cancelButtonText: {
-    color: '#666',
+    color: isDark ? '#D1D5DB' : '#666',
     fontSize: 16,
     fontWeight: '600',
   },
@@ -453,24 +474,12 @@ const styles = StyleSheet.create({
   },
   emptyStateText: {
     fontSize: 16,
-    color: '#999',
+    color: isDark ? '#9CA3AF' : '#999',
     textAlign: 'center',
-  },
-
-  // New styles I added
-  loadingContainer: { 
-    flex: 1, 
-    justifyContent: 'center', 
-    alignItems: 'center' 
-  },
-  loadingText: { 
-    marginTop: 12, 
-    fontSize: 16, 
-    color: '#666' 
   },
   emptyStateSubtext: { 
     fontSize: 14, 
-    color: '#999', 
+    color: isDark ? '#9CA3AF' : '#999', 
     marginTop: 8, 
     marginBottom: 20, 
     textAlign: 'center' 
@@ -489,16 +498,18 @@ const styles = StyleSheet.create({
     fontSize: 16, 
     fontWeight: '600' 
   },
-  unreadCount: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
+  loadingContainer: { 
+    flex: 1, 
+    justifyContent: 'center', 
+    alignItems: 'center' 
   },
-  modalSubtitle: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 20,
+  loadingText: { 
+    marginTop: 12, 
+    fontSize: 16, 
+    color: isDark ? '#9CA3AF' : '#666' 
+  },
+  refreshControl: {
+    backgroundColor: 'transparent',
   },
 });
 

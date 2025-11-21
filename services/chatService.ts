@@ -11,12 +11,20 @@ export const chatService = {
     }
   },
 
-  // Get messages for a conversation
-  getMessages: async (conversationId: string, page: number = 1) => {
+  // Get messages for a conversation with pagination
+  getMessages: async (conversationId: string, page: number = 1, limit: number = 30) => {
     try {
-      const response = await api.get(`/chat/conversations/${conversationId}/messages?page=${page}`);
-      return response.data;
+      const response = await api.get(
+        `/chat/conversations/${conversationId}/messages?page=${page}&limit=${limit}`
+      );
+      
+      return {
+        messages: response.data || [],
+        hasMore: response.data?.length === limit,
+        page
+      };
     } catch (error: any) {
+      console.error('❌ [CHAT SERVICE] Error fetching messages:', error);
       throw error.response?.data || error;
     }
   },
@@ -34,30 +42,18 @@ export const chatService = {
   },
 
   // Create a new conversation
-// In your chatService.ts
-createConversation: async (participantIds: string[], name?: string) => {
-  try {
-    console.log('📱 [CHAT SERVICE] Creating conversation with participants:', participantIds);
-    
-    const response = await api.post('/chat/conversations', {
-      participantIds,
-      name,
-    });
-    
-    console.log('✅ [CHAT SERVICE] Full response:', response);
-    console.log('✅ [CHAT SERVICE] Response data:', response.data);
-    console.log('✅ [CHAT SERVICE] Conversation ID:', response.data._id);
-    
-    return response.data;
-  } catch (error: any) {
-    console.error('❌ [CHAT SERVICE] Create conversation error:', {
-      message: error.message,
-      response: error.response?.data,
-      status: error.response?.status
-    });
-    throw error.response?.data || error;
-  }
-},
+  createConversation: async (participantIds: string[], name?: string) => {
+    try {
+      const response = await api.post('/chat/conversations', {
+        participantIds,
+        name,
+      });
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ [CHAT SERVICE] Create conversation error:', error);
+      throw error.response?.data || error;
+    }
+  },
 
   // Mark messages as read
   markAsRead: async (conversationId: string, messageIds: string[]) => {

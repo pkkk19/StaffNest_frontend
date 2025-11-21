@@ -8,7 +8,7 @@ const LOCAL_IP = '192.168.1.67'; // Your computer's IP
 
 const getBaseURL = () => {
   if (USE_NGROK) {
-    return 'https://19361c151255.ngrok-free.app';
+    return 'https://b724f27df006.ngrok-free.app';
   } else {
     return `http://localhost:3000`;
   }
