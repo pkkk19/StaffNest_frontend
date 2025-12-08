@@ -35,7 +35,7 @@ async testConnection(): Promise<boolean> {
 
         console.log('🔌 Connecting to WebSocket...');
         
-        this.socket = io('https://b724f27df006.ngrok-free.app', {
+        this.socket = io('https://0d06865cf4df.ngrok-free.app/', {
           auth: { token },
           transports: ['websocket', 'polling'],
           timeout: 10000,

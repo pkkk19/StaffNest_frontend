@@ -8,7 +8,7 @@ const LOCAL_IP = '192.168.1.67'; // Your computer's IP
 
 const getBaseURL = () => {
   if (USE_NGROK) {
-    return 'https://b724f27df006.ngrok-free.app';
+    return 'https://0d06865cf4df.ngrok-free.app/';
   } else {
     return `http://localhost:3000`;
   }
@@ -98,6 +98,13 @@ export const authAPI = {
 export const profileAPI = {
   getProfile: () => api.get('/profile'),
   updateProfile: (profileData: any) => api.put('/profile', profileData),
+  uploadProfilePicture: (formData: FormData) => 
+    api.post('/profile/upload-picture', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    }),
+  removeProfilePicture: () => api.post('/profile/remove-picture'),
 };
 
 // Companies API calls
@@ -110,25 +117,79 @@ export const companiesAPI = {
     logo_url?: string;
   }) => api.post('/companies', companyData),
   getCompany: (id: string) => api.get(`/companies/${id}`),
-  updateCompany: (id: string, companyData: any) =>
-    api.put(`/companies/${id}`, companyData),
+  getMyCompany: () => api.get('/companies/my'),
+  updateCompany: (companyData: any) => api.put('/companies', companyData),
   deleteCompany: (id: string) => api.delete(`/companies/${id}`),
+  
+  // Logo upload endpoints
+  uploadLogo: (formData: FormData) => 
+    api.post('/companies/upload-logo', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    }),
+  removeLogo: () => api.post('/companies/remove-logo'),
+
+  addLocation: (locationData: {
+    name: string;
+    address?: string;
+    latitude: number;
+    longitude: number;
+    radius?: number;
+    is_active?: boolean;
+  }) => api.post('/companies/locations', locationData),
+
+  getLocations: () => api.get('/companies/locations'),
+
+  updateLocation: (locationIndex: number, locationData: {
+    name?: string;
+    address?: string;
+    latitude?: number;
+    longitude?: number;
+    radius?: number;
+    is_active?: boolean;
+  }) => api.put(`/companies/locations/${locationIndex}`, locationData),
+
+  deleteLocation: (locationIndex: number) => api.delete(`/companies/locations/${locationIndex}`),
 };
 
 // Shifts API calls
 export const shiftsAPI = {
-  getShifts: () => api.get('/shifts'),
   createShift: (shiftData: {
     title: string;
     description?: string;
-    start_time: Date;
-    end_time: Date;
-    user_id: string;
-    company_id: string;
+    start_time: string;  // ISO string
+    end_time: string;    // ISO string
+    user_id?: string;
+    location?: string;
+    location_coordinates?: {
+      latitude: number;
+      longitude: number;
+    };
+    location_address?: string;
+    color_hex?: string;
+    type?: 'assigned' | 'open';
     status?: string;
-    notes?: string;
   }) => api.post('/shifts', shiftData),
+
   getShift: (id: string) => api.get(`/shifts/${id}`),
+
+  getShifts: (filters?: any) => 
+    api.get('/shifts', { params: filters }),
+
+  // Get user's shifts
+  getMyShifts: (filters?: any) => 
+    api.get('/shifts/my-shifts', { params: filters }),
+
+  // Get open shifts
+  getOpenShifts: (filters?: any) => 
+    api.get('/shifts', { 
+      params: { 
+        type: 'open',
+        ...filters 
+      } 
+    }),
+
   updateShift: (id: string, shiftData: any) =>
     api.put(`/shifts/${id}`, shiftData),
   deleteShift: (id: string) => api.delete(`/shifts/${id}`),
@@ -161,6 +222,26 @@ export const rotaAPI = {
   updateRotaItem: (id: string, rotaData: any) =>
     api.put(`/rota/${id}`, rotaData),
   deleteRotaItem: (id: string) => api.delete(`/rota/${id}`),
+};
+
+export const shiftRequestsAPI = {
+  // Create shift request
+  createRequest: (requestData: { shift_id: string; staff_notes?: string }) => 
+    api.post('/shifts/requests', requestData),
+
+  // Get shift requests (admin)
+  getRequests: (status?: string) => 
+    api.get('/shifts/requests', { 
+      params: status ? { status } : {} 
+    }),
+
+  // Get user's shift requests
+  getMyRequests: () => 
+    api.get('/shifts/requests/my-requests'),
+
+  // Update shift request (approve/reject)
+  updateRequest: (id: string, updateData: { status: 'approved' | 'rejected'; admin_notes?: string }) => 
+    api.patch(`/shifts/requests/${id}`, updateData),
 };
 
 export const staffAPI = {

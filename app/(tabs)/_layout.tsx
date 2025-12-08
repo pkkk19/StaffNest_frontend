@@ -46,6 +46,7 @@ export default function TabLayout() {
               ),
             }}
           />
+          {/* Rota tab group */}
           <Tabs.Screen
             name="rota"
             options={{
@@ -82,13 +83,37 @@ export default function TabLayout() {
               ),
             }}
           />
-          {/* Hide staff tab for staff users */}
-          {/* <Tabs.Screen
-            name="staff"
+          
+          {/* Hide nested rota screens from main tab bar */}
+          <Tabs.Screen
+          name="staff"
+          options={{
+            title: 'Manage Staff',
+            href: null,
+            tabBarIcon: ({ size, color }) => (
+              <Users size={size} color={color} />
+            ),
+          }}
+        />
+
+          <Tabs.Screen
+            name="rota/my-shifts"
             options={{
-              href: null,
+              href: null, // Hide from tab bar
             }}
-          /> */}
+          />
+          <Tabs.Screen
+            name="rota/open-shifts"
+            options={{
+              href: null, // Hide from tab bar
+            }}
+          />
+          <Tabs.Screen
+            name="rota/shift-requests"
+            options={{
+              href: null, // Hide from tab bar
+            }}
+          />
         </Tabs>
       </ProtectedRoute>
     );
@@ -125,6 +150,7 @@ export default function TabLayout() {
             ),
           }}
         />
+        {/* Rota tab group */}
         <Tabs.Screen
           name="rota"
           options={{
@@ -168,6 +194,26 @@ export default function TabLayout() {
             tabBarIcon: ({ size, color }) => (
               <Settings size={size} color={color} />
             ),
+          }}
+        />
+        
+        {/* Hide nested rota screens from main tab bar */}
+        <Tabs.Screen
+          name="rota/my-shifts"
+          options={{
+            href: null, // Hide from tab bar
+          }}
+        />
+        <Tabs.Screen
+          name="rota/open-shifts"
+          options={{
+            href: null, // Hide from tab bar
+          }}
+        />
+        <Tabs.Screen
+          name="rota/shift-requests"
+          options={{
+            href: null, // Hide from tab bar
           }}
         />
       </Tabs>

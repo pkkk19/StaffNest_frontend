@@ -12,7 +12,16 @@ interface User {
   company_id?: string;
   position?: string;
   phone_number?: string;
-  avatar?: string;
+  profile_picture_url?: string;
+  date_of_birth?: string;
+  address?: string;
+  emergency_contact?: {
+    name?: string;
+    phone?: string;
+    relationship?: string;
+    email?: string;
+    address?: string;
+  };
 }
 
 interface AuthContextType {
@@ -20,6 +29,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   register: (userData: any) => Promise<void>;
   logout: () => void;
+  updateUser: (updatedUser: User) => void; // Add this line
   isAuthenticated: boolean;
   loading: boolean;
   tokenExpired: boolean;
@@ -52,27 +62,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const fetchProfile = async () => {
-  try {
-    const response = await profileAPI.getProfile();
-    setUser(response.data);
-    setTokenExpired(false);
-  } catch (error: any) {
-    console.error('Failed to fetch profile', error);
-    
-    // Check if error is due to token expiration
-    if (error.response?.status === 401) {
-      setTokenExpired(true);
-      await AsyncStorage.removeItem('authaccess_token');
-    } else {
-      // Only remove token on auth errors, not network errors
-      if (error.response?.status === 401 || error.response?.status === 403) {
+    try {
+      const response = await profileAPI.getProfile();
+      setUser(response.data);
+      setTokenExpired(false);
+    } catch (error: any) {
+      console.error('Failed to fetch profile', error);
+      
+      // Check if error is due to token expiration
+      if (error.response?.status === 401) {
+        setTokenExpired(true);
         await AsyncStorage.removeItem('authaccess_token');
+      } else {
+        // Only remove token on auth errors, not network errors
+        if (error.response?.status === 401 || error.response?.status === 403) {
+          await AsyncStorage.removeItem('authaccess_token');
+        }
       }
+    } finally {
+      setLoading(false);
     }
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   const login = async (email: string, password: string) => {
     try {
@@ -85,7 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       await AsyncStorage.setItem('authaccess_token', access_token);
       setUser(user);
-      setTokenExpired(false); // Reset token expired flag on successful login
+      setTokenExpired(false);
     } catch (error: any) {
       console.error('Login failed', error);
       const errorMessage = error.response?.data?.message || error.message || 'An error occurred';
@@ -105,7 +115,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       await AsyncStorage.setItem('authaccess_token', access_token);
       setUser(user);
-      setTokenExpired(false); // Reset token expired flag on successful registration
+      setTokenExpired(false);
     } catch (error: any) {
       console.error('Registration failed', error);
       const errorMessage = error.response?.data?.message || error.message || 'An error occurred';
@@ -120,6 +130,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setTokenExpired(false);
   };
 
+  const updateUser = (updatedUser: User) => {
+    setUser(updatedUser);
+  };
+
   const clearTokenExpired = () => {
     setTokenExpired(false);
   };
@@ -130,6 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       login, 
       register, 
       logout, 
+      updateUser, // Now this matches the interface
       isAuthenticated: !!user,
       loading,
       tokenExpired,

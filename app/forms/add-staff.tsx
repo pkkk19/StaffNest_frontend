@@ -1,5 +1,5 @@
 import { View, Text, ScrollView, StyleSheet, TextInput, TouchableOpacity, Alert } from 'react-native';
-import { ArrowLeft, Save, User, Mail, Phone, MapPin, Calendar, Briefcase, CreditCard, IdCard, Building, PoundSterling, DollarSign, Globe, Euro, IndianRupee } from 'lucide-react-native';
+import { ArrowLeft, Save, User, Mail, Phone, MapPin, Calendar, Briefcase, CreditCard, IdCard, Building, PoundSterling, DollarSign, Globe, Euro, IndianRupee, AlertCircle } from 'lucide-react-native';
 import { useState, useCallback } from 'react';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -19,15 +19,23 @@ const InputField = ({
   icon: Icon,
   multiline = false,
   theme,
-  required = false
+  required = false,
+  isRequiredField = false
 }: any) => {
   const styles = createStyles(theme);
   
   return (
     <View style={styles.inputGroup}>
-      <Text style={styles.inputLabel}>
-        {label} {required && <Text style={styles.requiredStar}>*</Text>}
-      </Text>
+      <View style={styles.labelContainer}>
+        <Text style={styles.inputLabel}>
+          {label}
+        </Text>
+        {required && (
+          <View style={styles.requiredIndicator}>
+            <Text style={styles.requiredIndicatorText}>Required</Text>
+          </View>
+        )}
+      </View>
       <View style={[styles.inputContainer, error && styles.inputContainerError]}>
         {Icon && <Icon size={20} color="#6B7280" style={styles.inputIcon} />}
         <TextInput
@@ -52,9 +60,16 @@ const SelectField = ({ label, value, onValueChange, options, error, theme, requi
   
   return (
     <View style={styles.inputGroup}>
-      <Text style={styles.inputLabel}>
-        {label} {required && <Text style={styles.requiredStar}>*</Text>}
-      </Text>
+      <View style={styles.labelContainer}>
+        <Text style={styles.inputLabel}>
+          {label}
+        </Text>
+        {required && (
+          <View style={styles.requiredIndicator}>
+            <Text style={styles.requiredIndicatorText}>Required</Text>
+          </View>
+        )}
+      </View>
       <View style={styles.selectContainer}>
         {options.map((option: any) => (
           <TouchableOpacity
@@ -93,6 +108,23 @@ const CurrencyIcon = ({ country, size = 20, color = "#6B7280" }: { country?: str
   return <IconComponent size={size} color={color} />;
 };
 
+// Field Indicator Component
+const FieldIndicator = ({ type = 'required' }: { type?: 'required' | 'optional' }) => {
+  const styles = createStyles('light'); // Use light theme for consistent colors
+  
+  return (
+    <View style={styles.fieldIndicator}>
+      <View style={[
+        styles.indicatorDot, 
+        type === 'required' ? styles.requiredDot : styles.optionalDot
+      ]} />
+      <Text style={styles.indicatorText}>
+        {type === 'required' ? 'Required Field' : 'Optional Field'}
+      </Text>
+    </View>
+  );
+};
+
 export default function AddStaff() {
   const { theme } = useTheme();
   const { t } = useLanguage();
@@ -103,46 +135,49 @@ export default function AddStaff() {
   const { country, setCountry, countryConfig, countryFields } = useCountryForm('UK') as any;
 
   const [formData, setFormData] = useState({
-    // Personal Information
+    // Personal Information (REQUIRED)
     firstName: '',
     lastName: '',
     email: '',
+    
+    // Employment Details (REQUIRED)
+    department: '',
+    employmentStartDate: '',
+    
+    // Country Selection (REQUIRED)
+    country: 'UK',
+    
+    // Employee Identification (REQUIRED)
+    employeeRef: '',
+    identificationNumber: '',
+    
+    // Personal Information (OPTIONAL)
     phone: '',
     address: '',
     dateOfBirth: '',
     
-    // Employment Details
-    role: 'staff',
+    // Employment Details (OPTIONAL)
     position: '',
-    department: '',
     employmentType: 'full-time',
-    employmentStartDate: '',
     
-    // Country Selection
-    country: 'UK',
-    
-    // Employee Identification (will vary by country)
-    employeeRef: '',
-    identificationNumber: '',
-    
-    // Banking
+    // Banking (OPTIONAL)
     bankAccountNumber: '',
     bankDetails: '', // sort_code, routing_number, bsb_code, etc.
     
-    // Tax Information (will vary by country)
+    // Tax Information (OPTIONAL)
     taxInfo: '',
     
-    // Pay Rates
+    // Pay Rates (OPTIONAL)
     defaultHourlyRate: '',
     defaultSalary: '',
     
-    // Pension
+    // Pension (OPTIONAL)
     employeePensionRate: '0',
     employerPensionRate: '0',
     pensionSalarySacrifice: false,
     pensionScheme: '',
     
-    // Leave
+    // Leave (OPTIONAL)
     annualLeaveEntitlementDays: '25',
     annualLeaveEntitlementHours: '200',
   });
@@ -180,7 +215,7 @@ export default function AddStaff() {
     try {
       // Prepare data in the new flexible format
       const staffData = {
-        // Core Info
+        // Core Info (REQUIRED)
         first_name: formData.firstName,
         last_name: formData.lastName,
         email: formData.email,
@@ -188,8 +223,9 @@ export default function AddStaff() {
         address: formData.address || undefined,
         date_of_birth: formData.dateOfBirth || undefined,
         
-        // Employment
-        role: formData.role as 'staff' | 'admin',
+        // Employment (REQUIRED)
+        role: 'staff' as 'staff',
+        company_id: user?.company_id,
         position: formData.position || undefined,
         department: formData.department,
         employment: {
@@ -197,21 +233,21 @@ export default function AddStaff() {
           start_date: formData.employmentStartDate,
         },
         
-        // Country
+        // Country (REQUIRED)
         country: formData.country,
         
-        // Identification (country-specific)
+        // Identification (country-specific) (REQUIRED)
         identification: {
           employee_ref: formData.employeeRef,
           [countryConfig?.identification?.key || 'ni_number']: formData.identificationNumber
         },
         
-        // Tax Info (country-specific)
+        // Tax Info (country-specific) (OPTIONAL)
         tax_info: countryConfig?.tax?.key ? {
           [countryConfig.tax.key]: formData.taxInfo || countryConfig.tax.value
         } : {},
         
-        // Payment Method
+        // Payment Method (OPTIONAL)
         payment_method: {
           method: 'BACS', // Default, can be made dynamic
           account_number: formData.bankAccountNumber,
@@ -220,7 +256,7 @@ export default function AddStaff() {
           })
         },
         
-        // Pay Rates
+        // Pay Rates (OPTIONAL)
         pay_rates: {
           ...(formData.defaultHourlyRate && { 
             default_hourly_rate: parseFloat(formData.defaultHourlyRate) 
@@ -230,7 +266,7 @@ export default function AddStaff() {
           }),
         },
         
-        // Pension
+        // Pension (OPTIONAL)
         pension: {
           scheme_name: formData.pensionScheme || undefined,
           employee_contribution_rate: parseFloat(formData.employeePensionRate) || 0,
@@ -238,7 +274,7 @@ export default function AddStaff() {
           pension_salary_sacrifice: formData.pensionSalarySacrifice,
         },
         
-        // Leave configuration
+        // Leave configuration (OPTIONAL)
         leave_config: {
           annual_leave_days: parseInt(formData.annualLeaveEntitlementDays) || 25,
           annual_leave_hours: parseInt(formData.annualLeaveEntitlementHours) || 200,
@@ -278,7 +314,7 @@ export default function AddStaff() {
       
       Alert.alert(t('error'), errorMessage);
     }
-  }, [validateForm, formData, countryConfig, t]);
+  }, [validateForm, formData, countryConfig, t, user?.company_id]);
 
   const updateFormField = useCallback((field: string) => (value: string | boolean) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -307,43 +343,16 @@ export default function AddStaff() {
       </View>
 
       <ScrollView style={styles.content}>
-        {/* Required Fields Notice */}
-        <View style={styles.requiredNotice}>
-          <Text style={styles.requiredNoticeText}>
-            {t('requiredFieldsNotice')}
+        {/* Required Fields Section Header */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionHeaderTitle}>Required Information</Text>
+          <Text style={styles.sectionHeaderSubtitle}>
+            Fill in these fields to create a staff member
           </Text>
+          <FieldIndicator type="required" />
         </View>
 
-        {/* Country Selection */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t('countryConfiguration')}</Text>
-          
-          <SelectField
-            label={t('country')}
-            value={country}
-            onValueChange={handleCountryChange}
-            options={countryFields.map((countryCode: string) => ({
-              value: countryCode,
-              label: t(countryCode)
-            }))}
-            error={errors.country}
-            theme={theme}
-            required={true}
-          />
-
-          {countryConfig && (
-            <View style={styles.countryInfo}>
-              <View style={styles.currencyRow}>
-                <CurrencyIcon country={country} />
-                <Text style={styles.countryInfoText}>
-                  {t('selectedCountry')}: {t(country)} - {t('currency')}: {countryConfig.currency}
-                </Text>
-              </View>
-            </View>
-          )}
-        </View>
-
-        {/* Personal Information Section */}
+        {/* Personal Information - REQUIRED */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t('personalInformation')}</Text>
           
@@ -380,7 +389,122 @@ export default function AddStaff() {
             theme={theme}
             required={true}
           />
+        </View>
 
+        {/* Employment Details - REQUIRED */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>{t('employmentDetails')}</Text>
+
+          <InputField
+            label={t('department')}
+            value={formData.department}
+            onChangeText={updateFormField('department')}
+            placeholder={t('enterDepartment')}
+            error={errors.department}
+            icon={Building}
+            theme={theme}
+            required={true}
+          />
+
+          <InputField
+            label={t('employmentStartDate')}
+            value={formData.employmentStartDate}
+            onChangeText={updateFormField('employmentStartDate')}
+            placeholder="YYYY-MM-DD"
+            error={errors.employmentStartDate}
+            icon={Calendar}
+            theme={theme}
+            required={true}
+          />
+        </View>
+
+        {/* Country Selection - REQUIRED */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>{t('countryConfiguration')}</Text>
+          
+          <SelectField
+            label={t('country')}
+            value={country}
+            onValueChange={handleCountryChange}
+            options={countryFields.map((countryCode: string) => ({
+              value: countryCode,
+              label: t(countryCode)
+            }))}
+            error={errors.country}
+            theme={theme}
+            required={true}
+          />
+
+          {countryConfig && (
+            <View style={styles.countryInfo}>
+              <View style={styles.currencyRow}>
+                <CurrencyIcon country={country} />
+                <Text style={styles.countryInfoText}>
+                  {t('selectedCountry')}: {t(country)} - {t('currency')}: {countryConfig.currency}
+                </Text>
+              </View>
+            </View>
+          )}
+        </View>
+
+        {/* Employee Identification - REQUIRED */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>{t('employeeIdentification')}</Text>
+          
+          <InputField
+            label={t('employeeRef')}
+            value={formData.employeeRef}
+            onChangeText={updateFormField('employeeRef')}
+            placeholder={t('enterEmployeeRef')}
+            error={errors.employeeRef}
+            icon={IdCard}
+            theme={theme}
+            required={true}
+          />
+
+          {countryConfig?.identification && (
+            <InputField
+              label={countryConfig.identification.label}
+              value={formData.identificationNumber}
+              onChangeText={updateFormField('identificationNumber')}
+              placeholder={countryConfig.identification.placeholder}
+              error={errors.identificationNumber}
+              icon={IdCard}
+              theme={theme}
+              required={true}
+            />
+          )}
+
+          {countryConfig?.tax?.readonly && (
+            <View style={styles.readonlyField}>
+              <View style={styles.labelContainer}>
+                <Text style={styles.readonlyLabel}>{countryConfig.tax.label}</Text>
+                <View style={[styles.requiredIndicator, styles.optionalIndicator]}>
+                  <Text style={styles.requiredIndicatorText}>Auto-filled</Text>
+                </View>
+              </View>
+              <Text style={styles.readonlyValue}>{countryConfig.tax.value}</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Divider between required and optional sections */}
+        <View style={styles.sectionDivider}>
+          <View style={styles.dividerLine} />
+          <View style={styles.optionalSectionHeader}>
+            <Text style={styles.optionalSectionTitle}>Additional Information</Text>
+            <Text style={styles.optionalSectionSubtitle}>
+              Optional details - Can be added later
+            </Text>
+            <FieldIndicator type="optional" />
+          </View>
+          <View style={styles.dividerLine} />
+        </View>
+
+        {/* Personal Information - OPTIONAL */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>{t('contactDetails')}</Text>
+          
           <InputField
             label={t('phone')}
             value={formData.phone}
@@ -412,24 +536,6 @@ export default function AddStaff() {
             icon={Calendar}
             theme={theme}
           />
-        </View>
-
-        {/* Employment Details Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t('employmentDetails')}</Text>
-          
-          <SelectField
-            label={t('role')}
-            value={formData.role}
-            onValueChange={updateFormField('role')}
-            options={[
-              { value: 'admin', label: t('admin') },
-              { value: 'staff', label: t('staff') }
-            ]}
-            error={errors.role}
-            theme={theme}
-            required={true}
-          />
 
           <InputField
             label={t('position')}
@@ -439,17 +545,6 @@ export default function AddStaff() {
             error={errors.position}
             icon={Briefcase}
             theme={theme}
-          />
-
-          <InputField
-            label={t('department')}
-            value={formData.department}
-            onChangeText={updateFormField('department')}
-            placeholder={t('enterDepartment')}
-            error={errors.department}
-            icon={Building}
-            theme={theme}
-            required={true}
           />
 
           <SelectField
@@ -464,48 +559,13 @@ export default function AddStaff() {
             error={errors.employmentType}
             theme={theme}
           />
-
-          <InputField
-            label={t('employmentStartDate')}
-            value={formData.employmentStartDate}
-            onChangeText={updateFormField('employmentStartDate')}
-            placeholder="YYYY-MM-DD"
-            error={errors.employmentStartDate}
-            icon={Calendar}
-            theme={theme}
-            required={true}
-          />
         </View>
-        
-        {/* Country-Specific Identification */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t('employeeIdentification')}</Text>
-          
-          <InputField
-            label={t('employeeRef')}
-            value={formData.employeeRef}
-            onChangeText={updateFormField('employeeRef')}
-            placeholder={t('enterEmployeeRef')}
-            error={errors.employeeRef}
-            icon={IdCard}
-            theme={theme}
-            required={true}
-          />
 
-          {countryConfig?.identification && (
-            <InputField
-              label={countryConfig.identification.label}
-              value={formData.identificationNumber}
-              onChangeText={updateFormField('identificationNumber')}
-              placeholder={countryConfig.identification.placeholder}
-              error={errors.identificationNumber}
-              icon={IdCard}
-              theme={theme}
-              required={true}
-            />
-          )}
-
-          {countryConfig?.tax && !countryConfig.tax.readonly && (
+        {/* Tax Information - OPTIONAL */}
+        {countryConfig?.tax && !countryConfig.tax.readonly && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>{t('taxInformation')}</Text>
+            
             <InputField
               label={countryConfig.tax.label}
               value={formData.taxInfo}
@@ -515,17 +575,10 @@ export default function AddStaff() {
               icon={CreditCard}
               theme={theme}
             />
-          )}
+          </View>
+        )}
 
-          {countryConfig?.tax?.readonly && (
-            <View style={styles.readonlyField}>
-              <Text style={styles.readonlyLabel}>{countryConfig.tax.label}</Text>
-              <Text style={styles.readonlyValue}>{countryConfig.tax.value}</Text>
-            </View>
-          )}
-        </View>
-
-        {/* Banking Details */}
+        {/* Banking Details - OPTIONAL */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t('bankDetails')}</Text>
           
@@ -553,7 +606,7 @@ export default function AddStaff() {
           )}
         </View>
 
-        {/* Pension & Pay Rates Section */}
+        {/* Pension & Pay Rates - OPTIONAL */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t('pensionAndPay')}</Text>
           
@@ -644,9 +697,19 @@ export default function AddStaff() {
           />
         </View>
 
+        {/* Save Button */}
         <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
           <Text style={styles.saveButtonText}>{t('addStaffMember')}</Text>
         </TouchableOpacity>
+        
+        <View style={styles.formFooter}>
+          <Text style={styles.formFooterText}>
+            All required fields must be filled to create a staff member.
+          </Text>
+          <Text style={styles.formFooterText}>
+            Optional fields can be updated later in staff settings.
+          </Text>
+        </View>
       </ScrollView>
     </View>
   );
@@ -678,8 +741,26 @@ function createStyles(theme: string) {
     content: {
       flex: 1,
     },
+    sectionHeader: {
+      padding: 20,
+      paddingBottom: 10,
+      backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
+    },
+    sectionHeaderTitle: {
+      fontSize: 22,
+      fontWeight: '700',
+      color: isDark ? '#F9FAFB' : '#111827',
+      marginBottom: 4,
+    },
+    sectionHeaderSubtitle: {
+      fontSize: 14,
+      color: isDark ? '#9CA3AF' : '#6B7280',
+      marginBottom: 12,
+    },
     section: {
       padding: 20,
+      backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
+      marginTop: 1,
     },
     sectionTitle: {
       fontSize: 18,
@@ -687,14 +768,58 @@ function createStyles(theme: string) {
       color: isDark ? '#F9FAFB' : '#111827',
       marginBottom: 20,
     },
+    sectionDivider: {
+      marginVertical: 20,
+      paddingHorizontal: 20,
+    },
+    dividerLine: {
+      height: 1,
+      backgroundColor: isDark ? '#374151' : '#E5E7EB',
+      marginVertical: 10,
+    },
+    optionalSectionHeader: {
+      paddingVertical: 10,
+      alignItems: 'center',
+    },
+    optionalSectionTitle: {
+      fontSize: 20,
+      fontWeight: '700',
+      color: isDark ? '#F9FAFB' : '#111827',
+      marginBottom: 4,
+    },
+    optionalSectionSubtitle: {
+      fontSize: 14,
+      color: isDark ? '#9CA3AF' : '#6B7280',
+      marginBottom: 12,
+      textAlign: 'center',
+    },
     inputGroup: {
       marginBottom: 20,
+    },
+    labelContainer: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 8,
     },
     inputLabel: {
       fontSize: 14,
       fontWeight: '500',
       color: isDark ? '#F9FAFB' : '#111827',
-      marginBottom: 8,
+    },
+    requiredIndicator: {
+      backgroundColor: '#EF4444',
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+      borderRadius: 4,
+    },
+    optionalIndicator: {
+      backgroundColor: '#6B7280',
+    },
+    requiredIndicatorText: {
+      fontSize: 10,
+      fontWeight: '600',
+      color: '#FFFFFF',
     },
     inputContainer: {
       flexDirection: 'row',
@@ -760,6 +885,7 @@ function createStyles(theme: string) {
       paddingVertical: 16,
       alignItems: 'center',
       margin: 20,
+      marginTop: 30,
     },
     saveButtonText: {
       fontSize: 16,
@@ -794,29 +920,42 @@ function createStyles(theme: string) {
       fontSize: 14,
       fontWeight: '500',
       color: isDark ? '#9CA3AF' : '#6B7280',
-      marginBottom: 4,
     },
     readonlyValue: {
       fontSize: 16,
       color: isDark ? '#F9FAFB' : '#111827',
+      marginTop: 8,
     },
-    requiredStar: {
-      color: '#EF4444',
-      fontSize: 16,
+    fieldIndicator: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
     },
-    requiredNotice: {
-      backgroundColor: isDark ? '#1F2937' : '#EFF6FF',
-      padding: 12,
-      marginHorizontal: 20,
-      marginTop: 10,
-      borderRadius: 8,
-      borderLeftWidth: 4,
-      borderLeftColor: '#2563EB',
+    indicatorDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
     },
-    requiredNoticeText: {
+    requiredDot: {
+      backgroundColor: '#EF4444',
+    },
+    optionalDot: {
+      backgroundColor: '#6B7280',
+    },
+    indicatorText: {
       fontSize: 12,
-      color: isDark ? '#D1D5DB' : '#374151',
-      fontWeight: '500',
+      color: isDark ? '#9CA3AF' : '#6B7280',
+    },
+    formFooter: {
+      padding: 20,
+      paddingTop: 0,
+      alignItems: 'center',
+    },
+    formFooterText: {
+      fontSize: 12,
+      color: isDark ? '#9CA3AF' : '#6B7280',
+      textAlign: 'center',
+      marginBottom: 4,
     },
   });
 }

@@ -157,6 +157,19 @@ const translations: Record<Language, TranslationStrings> = {
     success: 'Success',
     profileUpdated: 'Profile updated successfully',
     ok: 'OK',
+    enterFirstName: "Enter first name",
+    enterLastName: "Enter last name",
+    position: "Position",
+    enterPosition: "Enter your position",
+    contactEmail: "Contact Email", 
+    enterContactEmail: "Enter contact email",
+    contactAddress: "Contact Address",
+    enterContactAddress: "Enter contact address",
+    saving: "Saving...",
+    updateFailed: "Failed to update profile",
+    "addPhoto": "Add Photo",
+    "uploading": "Uploading...",
+    "removePhoto": "Remove Photo",
     
     // Payslips
     grossPay: 'Gross Pay',
@@ -209,7 +222,6 @@ const translations: Record<Language, TranslationStrings> = {
   
   // Field Labels - Employment
   "role": "Role",
-  "position": "Position",
   "department": "Department",
   "employmentType": "Employment Type",
   "employmentStartDate": "Employment Start Date",
@@ -260,9 +272,6 @@ const translations: Record<Language, TranslationStrings> = {
   "taxFree": "Tax Free",
   
   // Placeholders
-  "enterFirstName": "Enter first name",
-  "enterLastName": "Enter last name", 
-  "enterPosition": "Enter position",
   "enterDepartment": "Enter department",
   "enterEmployeeRef": "Enter employee reference",
   "enterBankAccountNumber": "Enter bank account number",
@@ -287,6 +296,23 @@ const translations: Record<Language, TranslationStrings> = {
   "staffMemberAdded": "Staff member added successfully",
   "failedToAddStaff": "Failed to add staff member",
   "pleaseFixErrors": "Please fix the errors before saving",
+
+  //company info form
+  "company": "Company",
+  "manageCompanyDetails": "Manage company details and settings",
+  "basicInformation": "Basic Information",
+  "legalInformation": "Legal Information",
+  "dangerZone": "Danger Zone",
+  "phone": "Phone",
+  "website": "Website",
+  "employees": "Number of Employees",
+  "taxId": "Tax ID",
+  "registrationNumber": "Registration Number",
+  "edit": "Edit",
+  "save": "Save",
+  "changeLogo": "Change Logo",
+  "deleteCompany": "Delete Company",
+  "companyInfoUpdated": "Company information updated successfully"
   },
   ne: {
     // Dashboard

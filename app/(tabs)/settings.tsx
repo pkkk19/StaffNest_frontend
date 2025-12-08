@@ -1,20 +1,22 @@
-import { View, Text, ScrollView, StyleSheet, Switch, Platform } from 'react-native';
-import { User, Bell, Shield, Globe, Palette, CircleHelp as HelpCircle, LogOut, ChevronRight, Moon, Sun, Eye } from 'lucide-react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Switch } from 'react-native';
+import { User, Bell, Shield, Globe, Palette, CircleHelp as HelpCircle, LogOut, ChevronRight, Moon, Sun, ChevronDown, Building } from 'lucide-react-native';
+import { useState } from 'react';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useAuth } from '@/contexts/AuthContext';
-import ForceTouchable from '@/components/ForceTouchable';
 
 export default function Settings() {
   const { theme, setTheme } = useTheme();
   const { language, setLanguage, t } = useLanguage();
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
+  const [showLanguageDropdown, setShowLanguageDropdown] = useState(false);
 
   const styles = createStyles(theme);
 
-  const handleLanguageToggle = () => {
-    setLanguage(language === 'en' ? 'ne' : 'en');
+  const handleLanguageSelect = (selectedLanguage: 'en' | 'ne') => {
+    setLanguage(selectedLanguage);
+    setShowLanguageDropdown(false);
   };
 
   const SettingItem = ({ 
@@ -32,7 +34,7 @@ export default function Settings() {
     showChevron?: boolean;
     rightComponent?: React.ReactNode;
   }) => (
-    <ForceTouchable style={styles.settingItem} onPress={onPress}>
+    <TouchableOpacity style={styles.settingItem} onPress={onPress}>
       <Icon size={24} color={theme === 'dark' ? '#9CA3AF' : '#6B7280'} />
       <View style={styles.settingContent}>
         <Text style={styles.settingTitle}>{title}</Text>
@@ -41,7 +43,7 @@ export default function Settings() {
       {rightComponent || (showChevron && (
         <ChevronRight size={20} color={theme === 'dark' ? '#6B7280' : '#9CA3AF'} />
       ))}
-    </ForceTouchable>
+    </TouchableOpacity>
   );
 
   return (
@@ -89,38 +91,61 @@ export default function Settings() {
               </View>
             }
           />
-          
-          <SettingItem
-            icon={Eye}
-            title={t('colorblindMode')}
-            subtitle={t('optimizedForColorblindness')}
-            onPress={() => setTheme('colorblind')}
-            showChevron={false}
-            rightComponent={
-              <View style={[styles.radioButton, theme === 'colorblind' && styles.radioButtonActive]}>
-                {theme === 'colorblind' && <View style={styles.radioButtonInner} />}
-              </View>
-            }
-          />
         </View>
 
         {/* Language Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t('language')}</Text>
-          <SettingItem
-            icon={Globe}
-            title={t('language')}
-            subtitle={language === 'en' ? 'English' : 'नेपाली'}
-            showChevron={false}
-            rightComponent={
-              <Switch
-                value={language === 'ne'}
-                onValueChange={handleLanguageToggle}
-                trackColor={{ false: '#D1D5DB', true: '#2563EB' }}
-                thumbColor={language === 'ne' ? '#FFFFFF' : '#FFFFFF'}
-              />
-            }
-          />
+          <TouchableOpacity 
+            style={styles.settingItem} 
+            onPress={() => setShowLanguageDropdown(!showLanguageDropdown)}
+          >
+            <Globe size={24} color={theme === 'dark' ? '#9CA3AF' : '#6B7280'} />
+            <View style={styles.settingContent}>
+              <Text style={styles.settingTitle}>{t('language')}</Text>
+              <Text style={styles.settingSubtitle}>
+                {language === 'en' ? 'English' : 'नेपाली'}
+              </Text>
+            </View>
+            <ChevronDown 
+              size={20} 
+              color={theme === 'dark' ? '#6B7280' : '#9CA3AF'}
+              style={[
+                styles.chevronIcon,
+                showLanguageDropdown && styles.chevronIconRotated
+              ]}
+            />
+          </TouchableOpacity>
+          
+          {showLanguageDropdown && (
+            <View style={styles.dropdown}>
+              <TouchableOpacity 
+                style={[styles.dropdownItem, language === 'en' && styles.dropdownItemActive]}
+                onPress={() => handleLanguageSelect('en')}
+              >
+                <Text style={[
+                  styles.dropdownText,
+                  language === 'en' && styles.dropdownTextActive
+                ]}>
+                  English
+                </Text>
+                {language === 'en' && <View style={styles.checkmark} />}
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.dropdownItem, language === 'ne' && styles.dropdownItemActive]}
+                onPress={() => handleLanguageSelect('ne')}
+              >
+                <Text style={[
+                  styles.dropdownText,
+                  language === 'ne' && styles.dropdownTextActive
+                ]}>
+                  नेपाली
+                </Text>
+                {language === 'ne' && <View style={styles.checkmark} />}
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
 
         {/* Notifications Section */}
@@ -144,6 +169,28 @@ export default function Settings() {
             onPress={() => {}}
           />
         </View>
+
+        {/* Company Information Section - Only visible for admin */}
+        {user?.role === 'admin' && (
+          <View style={styles.section}>
+    <Text style={styles.sectionTitle}>{t('company')}</Text>
+    {user?.company_id ? (
+        <SettingItem
+          icon={Building}
+          title={t('companyInfo')}
+          subtitle={t('manageCompanyDetails')}
+          onPress={() => router.push('/forms/company-info')}
+        />
+      ) : (
+        <SettingItem
+          icon={Building}
+          title="Setup Company"
+          subtitle="Create your company profile"
+          onPress={() => router.push('/forms/company-setup')}
+        />
+      )}
+  </View>
+        )}
 
         {/* Support Section */}
         <View style={styles.section}>
@@ -248,6 +295,51 @@ function createStyles(theme: string) {
       width: 10,
       height: 10,
       borderRadius: 5,
+      backgroundColor: '#2563EB',
+    },
+    chevronIcon: {
+      transform: [{ rotate: '0deg' }],
+    },
+    chevronIconRotated: {
+      transform: [{ rotate: '180deg' }],
+    },
+    dropdown: {
+      backgroundColor: isDark ? '#374151' : '#F9FAFB',
+      borderRadius: 8,
+      marginHorizontal: 20,
+      marginTop: 4,
+      borderWidth: 1,
+      borderColor: isDark ? '#4B5563' : '#E5E7EB',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: isDark ? 0.3 : 0.1,
+      shadowRadius: 4,
+      elevation: 3,
+    },
+    dropdownItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: isDark ? '#4B5563' : '#E5E7EB',
+    },
+    dropdownItemActive: {
+      backgroundColor: isDark ? '#4B5563' : '#EBF4FF',
+    },
+    dropdownText: {
+      fontSize: 16,
+      color: isDark ? '#F9FAFB' : '#111827',
+    },
+    dropdownTextActive: {
+      color: '#2563EB',
+      fontWeight: '600',
+    },
+    checkmark: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
       backgroundColor: '#2563EB',
     },
   });

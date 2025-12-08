@@ -43,6 +43,9 @@ function RootLayoutNav() {
         <Stack.Screen name="forms/add-staff" />
         <Stack.Screen name="payslips" />
         <Stack.Screen name="+not-found" />
+        <Stack.Screen name="forms/company-info" />
+        <Stack.Screen name="forms/company-setup" />
+        <Stack.Screen name="forms/edit-staff" />
       </Stack>
     </>
   );
