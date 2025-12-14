@@ -87,9 +87,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'com.yourcompany.boltexponativewind'
+    namespace 'com.yourcompany.hourwize'
     defaultConfig {
-        applicationId 'com.yourcompany.boltexponativewind'
+        applicationId 'com.yourcompany.hourwize'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

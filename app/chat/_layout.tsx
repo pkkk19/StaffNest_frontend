@@ -31,14 +31,18 @@ export default function ChatLayout() {
           presentation: 'modal'
         }} 
       />
-      <Stack.Screen 
-        name="[conversationId]" 
-        options={{ 
+      <Stack.Screen
+        name="[conversationId]"
+        options={{
           headerShown: true,
-          title: 'Chat',
-          // Enable back button
-          headerBackVisible: true,
-        }} 
+          headerTitle: 'Chat',
+          // Android-specific header styling
+          headerTitleStyle: {
+            fontWeight: '600',
+            fontSize: 18,
+          },
+          headerTintColor: '#007AFF',
+        }}
       />
     </Stack>
   );

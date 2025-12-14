@@ -3,14 +3,15 @@ import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // At the top of your file
-const USE_NGROK = true; // Set to false for local development
+const USE_NGROK = false; // Set to false for local development
+const useproduction = true; // Set to true to use production server
 const LOCAL_IP = '192.168.1.67'; // Your computer's IP
 
 const getBaseURL = () => {
   if (USE_NGROK) {
-    return 'https://0d06865cf4df.ngrok-free.app/';
+    return 'https://718d3bd8a1e2.ngrok-free.app';
   } else {
-    return `http://localhost:3000`;
+    return `https://staffnest-backend-production.up.railway.app`;
   }
 };
 
@@ -378,5 +379,135 @@ export const contactsAPI = {
   // Add friend by QR code
   addFriendByQR: (qrData: string) => api.post('/contacts/qr-add', { qrData }),
 };
+
+// Add these interfaces at the top of api.ts file (or just before rolesAPI)
+interface Role {
+  _id: string;
+  title: string;
+  description?: string;
+  pay_amount: number;
+  pay_unit: 'hourly' | 'monthly' |'weekly' | 'fortnightly';
+  shifts?: any[];
+  default_break_minutes?: number;
+  is_active: boolean;
+  position?: number;
+  company_id: string;
+}
+
+interface CreateRoleDto {
+  title: string;
+  description?: string;
+  pay_amount: number;
+  pay_unit: 'hourly' | 'monthly' |'weekly' | 'fortnightly';
+  shifts?: any[];
+  default_break_minutes?: number;
+  is_active?: boolean;
+  position?: number;
+}
+
+interface UpdateRoleDto extends Partial<CreateRoleDto> {}
+
+// api.js - Add this after other API sections
+export const rolesAPI = {
+  // Get all roles for current company
+  getRoles: (): Promise<{ data: Role[] }> => api.get('/roles'),
+  
+  // Create a new role
+  createRole: (roleData: CreateRoleDto) => api.post('/roles', roleData),
+  
+  // Delete a role
+  deleteRole: (id: string) => api.delete(`/roles/${id}`),
+  
+  // Update a role
+  updateRole: (id: string, roleData: UpdateRoleDto) => api.put(`/roles/${id}`, roleData),
+};
+
+// Add to api.ts (after other API sections)
+// Add to existing api.ts
+
+// Payslip API calls
+export const payslipAPI = {
+
+   createPayslip: (data: any) => api.post('/payslips/generate', data),
+  // Get payslips with filters
+  getPayslips: (filters?: {
+    employee_id?: string;
+    status?: string;
+    year?: string;
+    pay_period_start?: string;
+    pay_period_end?: string;
+  }) => api.get('/payslips', { params: filters }),
+
+  // Get employee's own payslips
+  getMyPayslips: (filters?: { status?: string; year?: string }) =>
+    api.get('/payslips/my-payslips', { params: filters }),
+
+  // Get specific payslip
+  getPayslip: (id: string) => api.get(`/payslips/${id}`),
+
+  // Generate payslip
+  generatePayslip: (data: {
+    employee_id: string;
+    pay_period_start: string;
+    pay_period_end: string;
+    pay_date: string;
+    include_shifts?: boolean;
+  }) => api.post('/payslips/generate', data),
+
+  // Bulk generate payslips
+  bulkGeneratePayslips: (data: {
+    employee_ids: string[];
+    pay_period_start: string;
+    pay_period_end: string;
+    pay_date: string;
+  }) => api.post('/payslips/bulk-generate', data),
+
+  // Update payslip
+updatePayslip: (id: string, data: any) => api.put(`/payslips/${id}`, data),
+
+  // Approve payslip
+  approvePayslip: (id: string) => api.post(`/payslips/${id}/approve`),
+
+  // Reject payslip
+  rejectPayslip: (id: string, rejection_reason: string) =>
+    api.post(`/payslips/${id}/reject`, { rejection_reason }),
+
+  // Mark as paid
+  markPayslipAsPaid: (id: string) => api.post(`/payslips/${id}/mark-paid`),
+
+  // Generate PDF
+  generatePDF: (id: string) => api.post(`/payslips/${id}/generate-pdf`),
+
+  // Get pay periods
+  getPayPeriods: () => api.get('/payslips/periods'),
+
+  // Get payslip summary
+  getPayslipSummary: (id: string) => api.get(`/payslips/${id}/summary`),
+
+  // Delete payslip
+  deletePayslip: (id: string) => api.delete(`/payslips/${id}`),
+};
+
+// Make sure staffAPI is already defined in your fil
+
+// Add payroll configuration API
+export const payrollConfigAPI = {
+  // Get country configuration
+  getCountryConfig: (country: string) => api.get(`/payroll/config/${country}`),
+
+  // Get available countries
+  getAvailableCountries: () => api.get('/payroll/config/countries'),
+
+  // Update employee payroll settings
+  updateEmployeePayroll: (employeeId: string, data: any) =>
+    api.put(`/users/${employeeId}/payroll`, data),
+
+  // Get company payroll settings
+  getCompanyPayrollSettings: () => api.get('/payroll/settings'),
+
+  // Update company payroll settings
+  updateCompanyPayrollSettings: (data: any) => api.put('/payroll/settings', data),
+};
+
 
 export default api;

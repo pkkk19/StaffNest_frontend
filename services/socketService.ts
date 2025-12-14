@@ -35,7 +35,7 @@ async testConnection(): Promise<boolean> {
 
         console.log('🔌 Connecting to WebSocket...');
         
-        this.socket = io('https://0d06865cf4df.ngrok-free.app/', {
+        this.socket = io('https://staffnest-backend-production.up.railway.app', {
           auth: { token },
           transports: ['websocket', 'polling'],
           timeout: 10000,
@@ -139,6 +139,10 @@ async testConnection(): Promise<boolean> {
       this.isConnected = false;
       this.connectionPromise = null;
     }
+  }
+
+  getSocket(): Socket | null {
+    return this.socket;
   }
 }
 

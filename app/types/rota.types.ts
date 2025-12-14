@@ -19,7 +19,7 @@ export interface Shift {
     last_name: string;
     email: string;
   };
-  status: 'scheduled' | 'in-progress' | 'completed' | 'cancelled';
+  status: 'scheduled' | 'in-progress' | 'late' | 'completed' | 'completed-early' | 'completed-overtime' | 'cancelled';
   type: 'assigned' | 'open'; // OPEN is a TYPE, not a status
   clock_in_time?: string;
   clock_out_time?: string;
@@ -27,6 +27,18 @@ export interface Shift {
   clock_in_longitude?: number;
   clock_out_latitude?: number;
   clock_out_longitude?: number;
+  clock_in_radius_meters?: number;
+  clock_out_radius_meters?: number;
+  overtime_minutes?: number;
+  late_minutes?: number;
+  early_minutes?: number;
+  overtime_approved?: boolean;
+  overtime_approved_at?: string;
+  overtime_approved_by?: {
+    _id: string;
+    first_name: string;
+    last_name: string;
+  };
   createdAt: string;
   updatedAt: string;
 }

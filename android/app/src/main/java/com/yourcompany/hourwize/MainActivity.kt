@@ -1,4 +1,4 @@
-package com.yourcompany.boltexponativewind
+package com.yourcompany.hourwize
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build

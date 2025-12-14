@@ -22,31 +22,32 @@ export default function CompanyInfo() {
   const { user } = useAuth();
   
   // Main state
-  // Main state
-const [companyData, setCompanyData] = useState<CompanyData>({
-  _id: '',
-  name: '',
-  address: '',
-  phone_number: '',
-  email: '',
-  website: '',
-  currency: 'GBP', // Add default currency
-  country: 'UK',   // Add default country
-  locations: [],
-  subscription: {   // Add subscription with defaults
-    plan: 'basic',
-    status: 'active',
-    expiry_date: '',
-    max_users: 1,
-    current_users: 1
-  }
-});
+  const [companyData, setCompanyData] = useState<CompanyData>({
+    _id: '',
+    name: '',
+    address: '',
+    phone_number: '',
+    email: '',
+    website: '',
+    currency: 'GBP', // Add default currency
+    country: 'UK',   // Add default country
+    locations: [],
+    subscription: {   // Add subscription with defaults
+      plan: 'basic',
+      status: 'active',
+      expiry_date: '',
+      max_users: 1,
+      current_users: 1
+    }
+  });
+  
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [logo, setLogo] = useState<string | null>(null);
+  
   const handleRegionChange = (region: any) => {
-  setMapState(prev => ({ ...prev, region }));
-};
+    setMapState(prev => ({ ...prev, region }));
+  };
   
   // Location modal state
   const [modalState, setModalState] = useState<LocationModalState>({
@@ -228,6 +229,11 @@ const [companyData, setCompanyData] = useState<CompanyData>({
     setModalState(prev => ({ ...prev, visible: false }));
   };
 
+  // Add this handler function
+  const handleCoordinateChange = (coordinate: {latitude: number, longitude: number}) => {
+    setModalState(prev => ({ ...prev, coordinate }));
+  };
+
   const saveLocation = async () => {
     if (!modalState.name.trim() || !modalState.coordinate) {
       Alert.alert('Error', 'Please provide a name and select a location on the map');
@@ -312,19 +318,33 @@ const [companyData, setCompanyData] = useState<CompanyData>({
     }
 
     if (mapState.currentLocation) {
+      const newCoordinate = {
+        latitude: mapState.currentLocation.coords.latitude,
+        longitude: mapState.currentLocation.coords.longitude,
+      };
+      
+      // Update modal state coordinate
       setModalState(prev => ({
         ...prev,
-        coordinate: {
-          latitude: mapState.currentLocation.coords.latitude,
-          longitude: mapState.currentLocation.coords.longitude,
+        coordinate: newCoordinate
+      }));
+      
+      // Update map region to current location
+      setMapState(prev => ({
+        ...prev,
+        region: {
+          latitude: newCoordinate.latitude,
+          longitude: newCoordinate.longitude,
+          latitudeDelta: 0.01,
+          longitudeDelta: 0.01,
         }
       }));
       
       // Reverse geocode to get address
       try {
         const result = await Location.reverseGeocodeAsync({ 
-          latitude: mapState.currentLocation.coords.latitude, 
-          longitude: mapState.currentLocation.coords.longitude 
+          latitude: newCoordinate.latitude, 
+          longitude: newCoordinate.longitude 
         });
         
         if (result[0]) {
@@ -348,6 +368,7 @@ const [companyData, setCompanyData] = useState<CompanyData>({
   const handleMapPress = async (e: any) => {
     const coordinate = e.nativeEvent ? e.nativeEvent.coordinate : null;
     if (coordinate) {
+      // Update modal state coordinate
       setModalState(prev => ({ ...prev, coordinate }));
       
       // Reverse geocode to get address
@@ -425,7 +446,8 @@ const [companyData, setCompanyData] = useState<CompanyData>({
           onNameChange={(name) => setModalState(prev => ({ ...prev, name }))}
           onAddressChange={(address) => setModalState(prev => ({ ...prev, address }))}
           onRadiusChange={(radius) => setModalState(prev => ({ ...prev, radius }))}
-          onRegionChange={handleRegionChange} // Add this line
+          onRegionChange={handleRegionChange}
+          onCoordinateChange={handleCoordinateChange} // ADD THIS LINE
         />
       </Modal>
     </View>

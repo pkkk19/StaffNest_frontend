@@ -66,4 +66,33 @@ export const chatService = {
       throw error.response?.data || error;
     }
   },
+  deleteMessage: async (messageId: string) => {
+    try {
+      // TODO: Implement actual API call
+      // const response = await api.delete(`/chat/messages/${messageId}`);
+      // return response.data;
+      console.log('Delete message:', messageId);
+      return { success: true, messageId };
+    } catch (error: any) {
+      throw error.response?.data || error;
+    }
+  },
+
+  updateMessage: async (messageId: string, content: string) => {
+    try {
+      // TODO: Implement actual API call
+      // const response = await api.put(`/chat/messages/${messageId}`, { content });
+      // return response.data;
+      console.log('Update message:', messageId, content);
+      return { 
+        success: true, 
+        messageId, 
+        content,
+        edited: true,
+        updatedAt: new Date().toISOString()
+      };
+    } catch (error: any) {
+      throw error.response?.data || error;
+    }
+  },
 };

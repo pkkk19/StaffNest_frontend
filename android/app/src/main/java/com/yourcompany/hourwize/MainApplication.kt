@@ -1,4 +1,4 @@
-package com.yourcompany.boltexponativewind
+package com.yourcompany.hourwize
 
 import android.app.Application
 import android.content.res.Configuration

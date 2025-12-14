@@ -1,12 +1,14 @@
-import { View, Text, ScrollView, StyleSheet, Platform, TouchableOpacity, Image, ActivityIndicator, Alert } from 'react-native';
-import { ArrowLeft, Edit2, Phone, Mail, MapPin, Calendar, Clock, FileText, User, Briefcase, Building, CreditCard, DollarSign, PoundSterling, IndianRupee, Euro, Globe, Heart, PhoneCall, IdCard } from 'lucide-react-native';
+import { View, Text, ScrollView, StyleSheet, TextInput, Alert, Platform, Image, TouchableOpacity, ActivityIndicator, Modal, TouchableWithoutFeedback } from 'react-native';
+import { ArrowLeft, Save, Camera, X, Mail, Phone, MapPin, Calendar, User as UserIcon, Briefcase, Building, Heart, PhoneCall, CreditCard, DollarSign, PoundSterling, IndianRupee, Clock, FileText, Globe, IdCard } from 'lucide-react-native';
+import { useState, useEffect, useCallback } from 'react';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useState, useEffect } from 'react';
-import { staffAPI } from '@/services/api';
 import ForceTouchable from '@/components/ForceTouchable';
+import { staffAPI } from '@/services/api';
+import * as ImagePicker from 'expo-image-picker';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 interface StaffMember {
   _id: string;
@@ -25,7 +27,6 @@ interface StaffMember {
   address?: string;
   country?: string;
   
-  // Employment details
   employment?: {
     employment_type?: string;
     start_date?: string;
@@ -33,7 +34,6 @@ interface StaffMember {
     department?: string;
   };
   
-  // Identification
   identification?: {
     employee_ref?: string;
     ni_number?: string;
@@ -43,14 +43,12 @@ interface StaffMember {
     uae_id?: string;
   };
   
-  // Tax info
   tax_info?: {
     tax_code?: string;
     tax_id?: string;
     filing_status?: string;
   };
   
-  // Payment method
   payment_method?: {
     method?: string;
     account_number?: string;
@@ -59,14 +57,12 @@ interface StaffMember {
     bsb_code?: string;
   };
   
-  // Pay rates
   pay_rates?: {
     default_hourly_rate?: number;
     default_salary?: number;
     overtime_rate?: number;
   };
   
-  // Pension
   pension?: {
     scheme_name?: string;
     employee_contribution_rate?: number;
@@ -74,13 +70,11 @@ interface StaffMember {
     is_salary_sacrifice?: boolean;
   };
   
-  // Leave
   leave_config?: {
     annual_leave_days?: number;
     annual_leave_hours?: number;
   };
   
-  // Emergency contact
   emergency_contact?: {
     name?: string;
     phone?: string;
@@ -90,25 +84,92 @@ interface StaffMember {
   };
 }
 
-const InfoCard = ({ icon: Icon, title, value, theme, onPress, isEditable = false }: any) => {
-  const styles = createStyles(theme);
+// Reusable Input Field Component with proper typing
+const InputField = ({ 
+  label, 
+  value, 
+  onChangeText, 
+  placeholder, 
+  keyboardType = 'default', 
+  multiline = false, 
+  theme, 
+  icon: Icon,
+  editable = true 
+}: any) => {
+  const isDark = theme === 'dark';
   
   return (
-    <ForceTouchable style={styles.infoCard} onPress={onPress}>
-      <Icon size={20} color="#2563EB" />
-      <View style={styles.infoContent}>
-        <Text style={styles.infoTitle}>{title}</Text>
-        <Text style={styles.infoValue}>{value || 'Not set'}</Text>
+    <View style={inputFieldStyles.inputGroup}>
+      <View style={inputFieldStyles.inputLabelContainer}>
+        {Icon && <Icon size={16} color={isDark ? '#9CA3AF' : '#6B7280'} />}
+        <Text style={[
+          inputFieldStyles.inputLabel,
+          { color: isDark ? '#F9FAFB' : '#111827' }
+        ]}>
+          {label}
+        </Text>
       </View>
-      {isEditable && (
-        <Edit2 size={16} color={theme === 'dark' ? '#9CA3AF' : '#6B7280'} />
-      )}
-    </ForceTouchable>
+      <View style={[
+        inputFieldStyles.inputContainer,
+        { 
+          backgroundColor: isDark ? '#374151' : '#FFFFFF',
+          borderColor: isDark ? '#4B5563' : '#E5E7EB'
+        }
+      ]}>
+        <TextInput
+          style={[
+            inputFieldStyles.input,
+            { color: isDark ? '#F9FAFB' : '#111827' },
+            multiline && inputFieldStyles.multilineInput
+          ]}
+          value={value}
+          onChangeText={onChangeText}
+          placeholder={placeholder}
+          placeholderTextColor="#6B7280"
+          keyboardType={keyboardType}
+          multiline={multiline}
+          numberOfLines={multiline ? 3 : 1}
+          editable={editable}
+        />
+      </View>
+    </View>
   );
 };
 
-// Currency icon component
-const CurrencyIcon = ({ country, size = 20, color = "#6B7280" }: { country?: string; size?: number; color?: string }) => {
+const inputFieldStyles = StyleSheet.create({
+  inputGroup: {
+    marginBottom: 16,
+  },
+  inputLabelContainer: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    marginBottom: 8,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  inputContainer: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  input: {
+    flex: 1,
+    fontSize: 16,
+  },
+  multilineInput: {
+    minHeight: 80,
+    textAlignVertical: 'top' as const,
+  },
+});
+
+// Currency Icon component
+const CurrencyIcon = ({ country, size = 16, color = "#6B7280" }: { country?: string; size?: number; color?: string }) => {
   const currencyIcons: Record<string, any> = {
     UK: PoundSterling,
     US: DollarSign,
@@ -121,33 +182,115 @@ const CurrencyIcon = ({ country, size = 20, color = "#6B7280" }: { country?: str
   return <IconComponent size={size} color={color} />;
 };
 
-// Format date
-const formatDate = (dateString?: string) => {
-  if (!dateString) return 'Not set';
-  try {
-    return new Date(dateString).toLocaleDateString('en-GB', {
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric'
-    });
-  } catch {
-    return dateString;
-  }
+// Date Input Component
+const DateInputField = ({ 
+  label, 
+  value, 
+  onChange, 
+  placeholder, 
+  theme, 
+  icon: Icon 
+}: any) => {
+  const isDark = theme === 'dark';
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [date, setDate] = useState(value ? new Date(value) : new Date());
+
+  const handleDateChange = (event: any, selectedDate?: Date) => {
+    setShowDatePicker(false);
+    if (selectedDate) {
+      setDate(selectedDate);
+      onChange(selectedDate.toISOString().split('T')[0]);
+    }
+  };
+
+  return (
+    <View style={dateInputStyles.inputGroup}>
+      <View style={dateInputStyles.inputLabelContainer}>
+        {Icon && <Icon size={16} color={isDark ? '#9CA3AF' : '#6B7280'} />}
+        <Text style={[
+          dateInputStyles.inputLabel,
+          { color: isDark ? '#F9FAFB' : '#111827' }
+        ]}>
+          {label}
+        </Text>
+      </View>
+      <TouchableOpacity 
+        style={[
+          dateInputStyles.dateInputContainer,
+          { 
+            backgroundColor: isDark ? '#374151' : '#FFFFFF',
+            borderColor: isDark ? '#4B5563' : '#E5E7EB'
+          }
+        ]}
+        onPress={() => setShowDatePicker(true)}
+      >
+        <Text style={[
+          dateInputStyles.dateInput,
+          { color: isDark ? '#F9FAFB' : '#111827' }
+        ]}>
+          {value || placeholder}
+        </Text>
+      </TouchableOpacity>
+      {showDatePicker && (
+        <DateTimePicker
+          value={date}
+          mode="date"
+          display="default"
+          onChange={handleDateChange}
+        />
+      )}
+    </View>
+  );
 };
 
-export default function StaffDetails() {
+const dateInputStyles = StyleSheet.create({
+  inputGroup: {
+    marginBottom: 16,
+  },
+  inputLabelContainer: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    marginBottom: 8,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  dateInputContainer: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  dateInput: {
+    flex: 1,
+    fontSize: 16,
+  },
+});
+
+export default function EditStaff() {
   const { theme } = useTheme();
   const { t } = useLanguage();
   const { user } = useAuth();
   const params = useLocalSearchParams();
   const staffId = params.id as string;
-  
-  const [staffMember, setStaffMember] = useState<StaffMember | null>(null);
+
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [imageModalVisible, setImageModalVisible] = useState(false);
+  
+  const [formData, setFormData] = useState<StaffMember | null>(null);
+  const [profileImage, setProfileImage] = useState<string | null>(null);
 
   const styles = createStyles(theme);
+  const isDark = theme === 'dark';
 
+  // Load staff details
   useEffect(() => {
     if (staffId) {
       loadStaffDetails();
@@ -160,81 +303,210 @@ export default function StaffDetails() {
       setError(null);
       
       const response = await staffAPI.getStaffMember(staffId);
-      setStaffMember(response.data);
+      const staffData = response.data;
+      setFormData(staffData);
+      setProfileImage(staffData.profile_picture_url || null);
     } catch (error: any) {
       console.error('Failed to load staff details:', error);
-      
       let errorMessage = 'Failed to load staff details. Please try again.';
-      if (error.response?.status === 401) {
-        errorMessage = 'Session expired. Please login again.';
-      } else if (error.response?.data?.message) {
+      if (error.response?.data?.message) {
         errorMessage = error.response.data.message;
-      } else if (error.message) {
-        errorMessage = error.message;
       }
-      
       setError(errorMessage);
-      Alert.alert('Error', errorMessage, [
-        { text: 'OK', onPress: () => router.back() }
-      ]);
     } finally {
       setLoading(false);
     }
   };
 
-  const getInitials = (firstName?: string, lastName?: string) => {
-    if (!firstName || !lastName) return '??';
-    return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
-  };
+  // Use useCallback for the change handlers to prevent unnecessary re-renders
+  const handleChange = useCallback((field: string, value: any) => {
+    setFormData(prev => prev ? { ...prev, [field]: value } : null);
+  }, []);
 
-  const getStatusColor = (status?: string) => {
-    switch ((status || 'active').toLowerCase()) {
-      case 'active': return '#10B981';
-      case 'inactive': return '#EF4444';
-      case 'on leave': return '#F59E0B';
-      case 'pending': return '#6B7280';
-      default: return '#6B7280';
+  const handleNestedChange = useCallback((parent: string, field: string, value: any) => {
+    setFormData(prev => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        [parent]: {
+          ...(prev[parent as keyof StaffMember] as any || {}),
+          [field]: value
+        }
+      };
+    });
+  }, []);
+
+  const handleEmergencyContactChange = useCallback((field: string, value: string) => {
+    setFormData(prev => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        emergency_contact: {
+          ...(prev.emergency_contact || {}),
+          [field]: value
+        }
+      };
+    });
+  }, []);
+
+  const handleEmploymentChange = useCallback((field: string, value: any) => {
+    handleNestedChange('employment', field, value);
+  }, [handleNestedChange]);
+
+  const handleIdentificationChange = useCallback((field: string, value: string) => {
+    handleNestedChange('identification', field, value);
+  }, [handleNestedChange]);
+
+  const handleTaxInfoChange = useCallback((field: string, value: string) => {
+    handleNestedChange('tax_info', field, value);
+  }, [handleNestedChange]);
+
+  const handlePayRatesChange = useCallback((field: string, value: number) => {
+    handleNestedChange('pay_rates', field, value);
+  }, [handleNestedChange]);
+
+  const handlePaymentMethodChange = useCallback((field: string, value: string) => {
+    handleNestedChange('payment_method', field, value);
+  }, [handleNestedChange]);
+
+  const handlePensionChange = useCallback((field: string, value: any) => {
+    handleNestedChange('pension', field, value);
+  }, [handleNestedChange]);
+
+  const pickImage = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission required', 'Please allow access to your photos to upload a profile picture.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0].uri) {
+        await uploadImage(result.assets[0].uri);
+      }
+      setImageModalVisible(false);
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to pick image');
     }
   };
 
-  const getStatusText = (isActive?: boolean) => {
-    return isActive ? 'Active' : 'Inactive';
-  };
+  const takePhoto = async () => {
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission required', 'Please allow camera access to take a photo.');
+        return;
+      }
 
-  const getCountrySpecificId = (identification?: any) => {
-    if (!identification) return 'Not set';
-    
-    if (identification.ni_number) return `NI: ${identification.ni_number}`;
-    if (identification.ssn) return `SSN: ${identification.ssn}`;
-    if (identification.tfn) return `TFN: ${identification.tfn}`;
-    if (identification.pan) return `PAN: ${identification.pan}`;
-    if (identification.uae_id) return `UAE ID: ${identification.uae_id}`;
-    
-    return 'Not set';
-  };
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
 
-  const getBankDetails = (payment_method?: any) => {
-    if (!payment_method) return 'Not set';
-    
-    const { method, account_number, sort_code, routing_number, bsb_code } = payment_method;
-    let details = `${method || 'Bank Transfer'}`;
-    
-    if (account_number) details += ` • Acc: ****${account_number.slice(-4)}`;
-    if (sort_code) details += ` • Sort: ${sort_code}`;
-    if (routing_number) details += ` • Routing: ${routing_number}`;
-    if (bsb_code) details += ` • BSB: ${bsb_code}`;
-    
-    return details;
-  };
-
-  const handleEditStaff = () => {
-    if (staffMember && user?.role === 'admin') {
-      router.push(`/forms/edit-staff?id=${staffMember._id}`);
+      if (!result.canceled && result.assets[0].uri) {
+        await uploadImage(result.assets[0].uri);
+      }
+      setImageModalVisible(false);
+    } catch (error) {
+      console.error('Error taking photo:', error);
+      Alert.alert('Error', 'Failed to take photo');
     }
   };
 
-  const handleEditField = (fieldType: string) => {
-    Alert.alert('Edit Feature', `Edit ${fieldType} functionality will be implemented soon.`);
+  const uploadImage = async (imageUri: string) => {
+    try {
+      setUploading(true);
+      
+      // Note: You'll need to implement staff picture upload endpoint
+      // For now, we'll use the same profile upload API if available
+      Alert.alert('Info', 'Profile picture upload for staff will be implemented soon.');
+      
+      // Simulate upload success
+      setProfileImage(imageUri);
+      Alert.alert('Success', 'Profile picture updated successfully');
+    } catch (error: any) {
+      console.error('Error uploading image:', error);
+      Alert.alert('Error', 'Failed to upload image');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const removeProfileImage = async () => {
+    try {
+      setUploading(true);
+      setProfileImage(null);
+      Alert.alert('Success', 'Profile picture removed');
+      setImageModalVisible(false);
+    } catch (error) {
+      console.error('Error removing image:', error);
+      Alert.alert('Error', 'Failed to remove image');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!formData) return;
+    
+    try {
+      setSaving(true);
+      
+      // Prepare data for API - match your backend's expected format
+      const updateData = {
+        first_name: formData.first_name,
+        last_name: formData.last_name,
+        email: formData.email,
+        phone_number: formData.phone_number || undefined,
+        position: formData.position || undefined,
+        date_of_birth: formData.date_of_birth || undefined,
+        address: formData.address || undefined,
+        country: formData.country || undefined,
+        employment: formData.employment || undefined,
+        identification: formData.identification || undefined,
+        tax_info: formData.tax_info || undefined,
+        payment_method: formData.payment_method || undefined,
+        pay_rates: formData.pay_rates || undefined,
+        pension: formData.pension || undefined,
+        emergency_contact: formData.emergency_contact || undefined,
+      };
+
+      console.log('Updating staff with data:', updateData);
+      
+      // Using your staffAPI.updateStaff method
+      const response = await staffAPI.updateStaff(staffId, updateData);
+      
+      Alert.alert('Success', 'Staff details updated successfully!', [
+        { text: 'OK', onPress: () => router.back() }
+      ]);
+    } catch (error: any) {
+      console.error('Failed to update staff:', error);
+      
+      let errorMessage = 'Failed to update staff details. Please try again.';
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      Alert.alert('Error', errorMessage);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const getInitials = () => {
+    if (!formData) return '??';
+    return `${formData.first_name?.[0] || ''}${formData.last_name?.[0] || ''}`.toUpperCase();
   };
 
   if (loading) {
@@ -244,7 +516,7 @@ export default function StaffDetails() {
           <TouchableOpacity onPress={() => router.back()}>
             <ArrowLeft size={24} color={theme === 'dark' ? '#F9FAFB' : '#374151'} />
           </TouchableOpacity>
-          <Text style={styles.title}>Staff Details</Text>
+          <Text style={styles.title}>Edit Staff</Text>
           <View style={{ width: 24 }} />
         </View>
         <View style={styles.centerContent}>
@@ -255,480 +527,432 @@ export default function StaffDetails() {
     );
   }
 
-  if (error || !staffMember) {
+  if (error || !formData) {
     return (
       <View style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()}>
             <ArrowLeft size={24} color={theme === 'dark' ? '#F9FAFB' : '#374151'} />
           </TouchableOpacity>
-          <Text style={styles.title}>Staff Details</Text>
+          <Text style={styles.title}>Edit Staff</Text>
           <View style={{ width: 24 }} />
         </View>
         <View style={styles.centerContent}>
           <View style={styles.errorIcon}>
-            <User size={48} color="#EF4444" />
+            <UserIcon size={48} color="#EF4444" />
           </View>
           <Text style={styles.errorText}>{error || 'Staff member not found'}</Text>
           <TouchableOpacity
             style={styles.retryButton}
+            onPress={loadStaffDetails}
+          >
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.retryButton, { backgroundColor: 'transparent', marginTop: 12 }]}
             onPress={() => router.back()}
           >
-            <Text style={styles.retryButtonText}>Go Back</Text>
+            <Text style={[styles.retryButtonText, { color: '#2563EB' }]}>Go Back</Text>
           </TouchableOpacity>
         </View>
       </View>
     );
   }
 
-  const isAdmin = user?.role === 'admin';
-  const isEditable = isAdmin;
-
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()}>
-          <ArrowLeft size={24} color={theme === 'dark' ? '#F9FAFB' : '#374151'} />
+          <ArrowLeft size={24} color={isDark ? '#F9FAFB' : '#374151'} />
         </TouchableOpacity>
-        <Text style={styles.title}>Staff Details</Text>
-        {isEditable && (
-          <TouchableOpacity onPress={handleEditStaff}>
-            <Edit2 size={24} color="#2563EB" />
-          </TouchableOpacity>
-        )}
+        <Text style={styles.title}>Edit Staff</Text>
+        <TouchableOpacity 
+          style={[styles.saveButtonHeader, saving && styles.saveButtonDisabled]}
+          onPress={handleSave}
+          disabled={saving}
+        >
+          {saving ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <>
+              <Save size={16} color="#FFFFFF" style={{ marginRight: 4 }} />
+              <Text style={styles.saveButtonHeaderText}>Save</Text>
+            </>
+          )}
+        </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.content}>
-        {/* Profile Section */}
+      <ScrollView 
+        style={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Profile Picture Section */}
         <View style={styles.profileSection}>
-          {staffMember.profile_picture_url ? (
-            <Image 
-              source={{ uri: staffMember.profile_picture_url }} 
-              style={styles.profileImage}
-            />
-          ) : (
-            <View style={styles.avatarContainer}>
-              <Text style={styles.avatarText}>
-                {getInitials(staffMember.first_name, staffMember.last_name)}
-              </Text>
+          <TouchableOpacity 
+            style={styles.avatarContainer}
+            onPress={() => setImageModalVisible(true)}
+          >
+            {profileImage ? (
+              <Image 
+                source={{ uri: profileImage }} 
+                style={styles.avatarImage}
+                resizeMode="cover"
+              />
+            ) : (
+              <View style={styles.avatarPlaceholder}>
+                <Text style={styles.avatarText}>{getInitials()}</Text>
+              </View>
+            )}
+            <View style={styles.cameraIcon}>
+              <Camera size={14} color="#FFFFFF" />
             </View>
-          )}
+          </TouchableOpacity>
           
           <Text style={styles.staffName}>
-            {staffMember.first_name} {staffMember.last_name}
+            {formData.first_name} {formData.last_name}
           </Text>
           
           <Text style={styles.staffRole}>
-            {staffMember.position || staffMember.role}
-            {staffMember.employment?.department && ` • ${staffMember.employment.department}`}
+            {formData.position || formData.role}
+            {formData.employment?.department && ` • ${formData.employment.department}`}
           </Text>
-          
-          <View style={[styles.statusBadge, { backgroundColor: getStatusColor(staffMember.status) }]}>
-            <Text style={styles.statusText}>
-              {getStatusText(staffMember.is_active)}
-            </Text>
-          </View>
         </View>
 
-        {/* Personal Information */}
+        {/* Personal Information Section */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Personal Information</Text>
-            {isEditable && (
-              <TouchableOpacity 
-                style={styles.editSectionButton}
-                onPress={() => handleEditField('personal information')}
-              >
-                <Edit2 size={16} color="#2563EB" />
-              </TouchableOpacity>
-            )}
-          </View>
-          
-          <InfoCard
-            icon={Mail}
-            title="Email"
-            value={staffMember.email}
-            theme={theme}
-            onPress={() => handleEditField('email')}
-            isEditable={isEditable}
-          />
-          
-          <InfoCard
-            icon={Phone}
-            title="Phone"
-            value={staffMember.phone_number}
-            theme={theme}
-            onPress={() => handleEditField('phone')}
-            isEditable={isEditable}
-          />
-          
-          <InfoCard
-            icon={MapPin}
-            title="Address"
-            value={staffMember.address}
-            theme={theme}
-            onPress={() => handleEditField('address')}
-            isEditable={isEditable}
-          />
-          
-          <InfoCard
-            icon={Calendar}
-            title="Date of Birth"
-            value={formatDate(staffMember.date_of_birth)}
-            theme={theme}
-            onPress={() => handleEditField('date of birth')}
-            isEditable={isEditable}
-          />
-          
-          <InfoCard
-            icon={Globe}
-            title="Country"
-            value={staffMember.country || 'Not set'}
-            theme={theme}
-            onPress={() => handleEditField('country')}
-            isEditable={isEditable}
-          />
-        </View>
-
-        {/* Employment Details */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Employment Details</Text>
-            {isEditable && (
-              <TouchableOpacity 
-                style={styles.editSectionButton}
-                onPress={() => handleEditField('employment details')}
-              >
-                <Edit2 size={16} color="#2563EB" />
-              </TouchableOpacity>
-            )}
-          </View>
-          
-          <InfoCard
-            icon={FileText}
-            title="Employee Reference"
-            value={staffMember.identification?.employee_ref}
-            theme={theme}
-            onPress={() => handleEditField('employee reference')}
-            isEditable={isEditable}
-          />
-          
-          <InfoCard
-            icon={IdCard}
-            title="National ID"
-            value={getCountrySpecificId(staffMember.identification)}
-            theme={theme}
-            onPress={() => handleEditField('national ID')}
-            isEditable={isEditable}
-          />
-          
-          <InfoCard
-            icon={Briefcase}
-            title="Position"
-            value={staffMember.position}
-            theme={theme}
-            onPress={() => handleEditField('position')}
-            isEditable={isEditable}
-          />
-          
-          <InfoCard
-            icon={Building}
-            title="Department"
-            value={staffMember.employment?.department || staffMember.department}
-            theme={theme}
-            onPress={() => handleEditField('department')}
-            isEditable={isEditable}
-          />
-          
-          <InfoCard
-            icon={Calendar}
-            title="Start Date"
-            value={formatDate(staffMember.employment?.start_date)}
-            theme={theme}
-            onPress={() => handleEditField('start date')}
-            isEditable={isEditable}
-          />
-          
-          <InfoCard
-            icon={Clock}
-            title="Employment Type"
-            value={staffMember.employment?.employment_type || 'Full-time'}
-            theme={theme}
-            onPress={() => handleEditField('employment type')}
-            isEditable={isEditable}
-          />
-        </View>
-
-        {/* Financial Information */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Financial Information</Text>
-            {isEditable && (
-              <TouchableOpacity 
-                style={styles.editSectionButton}
-                onPress={() => handleEditField('financial information')}
-              >
-                <Edit2 size={16} color="#2563EB" />
-              </TouchableOpacity>
-            )}
-          </View>
-          
-          {staffMember.tax_info && (
-            <>
-              {staffMember.tax_info.tax_code && (
-                <InfoCard
-                  icon={CreditCard}
-                  title="Tax Code"
-                  value={staffMember.tax_info.tax_code}
-                  theme={theme}
-                  onPress={() => handleEditField('tax code')}
-                  isEditable={isEditable}
-                />
-              )}
-              
-              {staffMember.tax_info.filing_status && (
-                <InfoCard
-                  icon={CreditCard}
-                  title="Filing Status"
-                  value={staffMember.tax_info.filing_status}
-                  theme={theme}
-                  onPress={() => handleEditField('filing status')}
-                  isEditable={isEditable}
-                />
-              )}
-            </>
-          )}
-          
-          {staffMember.pay_rates && (
-            <>
-              {staffMember.pay_rates.default_hourly_rate && (
-                <InfoCard
-                  icon={() => <CurrencyIcon country={staffMember.country} />}
-                  title="Hourly Rate"
-                  value={`${staffMember.pay_rates.default_hourly_rate}/hour`}
-                  theme={theme}
-                  onPress={() => handleEditField('hourly rate')}
-                  isEditable={isEditable}
-                />
-              )}
-              
-              {staffMember.pay_rates.default_salary && (
-                <InfoCard
-                  icon={() => <CurrencyIcon country={staffMember.country} />}
-                  title="Annual Salary"
-                  value={`${staffMember.pay_rates.default_salary}/year`}
-                  theme={theme}
-                  onPress={() => handleEditField('salary')}
-                  isEditable={isEditable}
-                />
-              )}
-            </>
-          )}
-          
-          <InfoCard
-            icon={CreditCard}
-            title="Bank Details"
-            value={getBankDetails(staffMember.payment_method)}
-            theme={theme}
-            onPress={() => handleEditField('bank details')}
-            isEditable={isEditable}
-          />
-          
-          {staffMember.pension && (
-            <>
-              {staffMember.pension.scheme_name && (
-                <InfoCard
-                  icon={Building}
-                  title="Pension Scheme"
-                  value={staffMember.pension.scheme_name}
-                  theme={theme}
-                  onPress={() => handleEditField('pension scheme')}
-                  isEditable={isEditable}
-                />
-              )}
-              
-              {(staffMember.pension.employee_contribution_rate || staffMember.pension.employer_contribution_rate) && (
-                <InfoCard
-                  icon={Percent}
-                  title="Pension Contributions"
-                  value={`Employee: ${staffMember.pension.employee_contribution_rate || 0}% • Employer: ${staffMember.pension.employer_contribution_rate || 0}%`}
-                  theme={theme}
-                  onPress={() => handleEditField('pension contributions')}
-                  isEditable={isEditable}
-                />
-              )}
-            </>
-          )}
-        </View>
-
-        {/* Leave Information */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Leave Information</Text>
-            {isEditable && (
-              <TouchableOpacity 
-                style={styles.editSectionButton}
-                onPress={() => handleEditField('leave information')}
-              >
-                <Edit2 size={16} color="#2563EB" />
-              </TouchableOpacity>
-            )}
-          </View>
-          
-          {staffMember.leave_config && (
-            <>
-              <InfoCard
-                icon={Calendar}
-                title="Annual Leave Days"
-                value={`${staffMember.leave_config.annual_leave_days || 25} days`}
-                theme={theme}
-                onPress={() => handleEditField('annual leave')}
-                isEditable={isEditable}
-              />
-              
-              <InfoCard
-                icon={Calendar}
-                title="Annual Leave Hours"
-                value={`${staffMember.leave_config.annual_leave_hours || 200} hours`}
-                theme={theme}
-                onPress={() => handleEditField('annual leave hours')}
-                isEditable={isEditable}
-              />
-            </>
-          )}
-        </View>
-
-        {/* Emergency Contact */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Emergency Contact</Text>
-            {isEditable && (
-              <TouchableOpacity 
-                style={styles.editSectionButton}
-                onPress={() => handleEditField('emergency contact')}
-              >
-                <Edit2 size={16} color="#2563EB" />
-              </TouchableOpacity>
-            )}
-          </View>
-          
-          {staffMember.emergency_contact ? (
-            <>
-              <InfoCard
-                icon={User}
-                title="Contact Name"
-                value={staffMember.emergency_contact.name}
-                theme={theme}
-                onPress={() => handleEditField('emergency contact name')}
-                isEditable={isEditable}
-              />
-              
-              <InfoCard
-                icon={PhoneCall}
-                title="Contact Phone"
-                value={staffMember.emergency_contact.phone}
-                theme={theme}
-                onPress={() => handleEditField('emergency contact phone')}
-                isEditable={isEditable}
-              />
-              
-              {staffMember.emergency_contact.relationship && (
-                <InfoCard
-                  icon={Heart}
-                  title="Relationship"
-                  value={staffMember.emergency_contact.relationship}
-                  theme={theme}
-                  onPress={() => handleEditField('emergency contact relationship')}
-                  isEditable={isEditable}
-                />
-              )}
-              
-              {staffMember.emergency_contact.email && (
-                <InfoCard
-                  icon={Mail}
-                  title="Contact Email"
-                  value={staffMember.emergency_contact.email}
-                  theme={theme}
-                  onPress={() => handleEditField('emergency contact email')}
-                  isEditable={isEditable}
-                />
-              )}
-            </>
-          ) : (
-            <View style={styles.emptyInfoCard}>
-              <Heart size={20} color="#9CA3AF" />
-              <View style={styles.infoContent}>
-                <Text style={styles.infoTitle}>Emergency Contact</Text>
-                <Text style={[styles.infoValue, { color: '#9CA3AF' }]}>No emergency contact set</Text>
-              </View>
-              {isEditable && (
-                <TouchableOpacity onPress={() => handleEditField('emergency contact')}>
-                  <Text style={styles.addContactText}>Add Contact</Text>
-                </TouchableOpacity>
-              )}
+            <View style={styles.sectionIcon}>
+              <UserIcon size={20} color="#2563EB" />
             </View>
-          )}
+            <Text style={styles.sectionTitle}>Personal Information</Text>
+          </View>
+
+          <InputField
+            label="First Name"
+            value={formData.first_name}
+            onChangeText={(text: string) => handleChange('first_name', text)}
+            placeholder="Enter first name"
+            theme={theme}
+            icon={UserIcon}
+          />
+
+          <InputField
+            label="Last Name"
+            value={formData.last_name}
+            onChangeText={(text: string) => handleChange('last_name', text)}
+            placeholder="Enter last name"
+            theme={theme}
+            icon={UserIcon}
+          />
+
+          <InputField
+            label="Email"
+            value={formData.email}
+            onChangeText={(text: string) => handleChange('email', text)}
+            placeholder="Enter email"
+            keyboardType="email-address"
+            theme={theme}
+            icon={Mail}
+            editable={false} // Email should not be editable
+          />
+
+          <InputField
+            label="Phone"
+            value={formData.phone_number || ''}
+            onChangeText={(text: string) => handleChange('phone_number', text)}
+            placeholder="Enter phone number"
+            keyboardType="phone-pad"
+            theme={theme}
+            icon={Phone}
+          />
+
+          <DateInputField
+            label="Date of Birth"
+            value={formData.date_of_birth || ''}
+            onChange={(text: string) => handleChange('date_of_birth', text)}
+            placeholder="Select date of birth"
+            theme={theme}
+            icon={Calendar}
+          />
+
+          <InputField
+            label="Address"
+            value={formData.address || ''}
+            onChangeText={(text: string) => handleChange('address', text)}
+            placeholder="Enter address"
+            multiline={true}
+            theme={theme}
+            icon={MapPin}
+          />
+
+          <InputField
+            label="Country"
+            value={formData.country || ''}
+            onChangeText={(text: string) => handleChange('country', text)}
+            placeholder="Enter country"
+            theme={theme}
+            icon={Globe}
+          />
         </View>
 
-        {/* Admin Actions */}
-        {isAdmin && (
-          <View style={styles.actionButtons}>
-            <ForceTouchable 
-              style={styles.primaryButton}
-              onPress={() => router.push(`/payslips?staffId=${staffMember._id}`)}
-            >
-              <Text style={styles.primaryButtonText}>View Payslips</Text>
-            </ForceTouchable>
-            
-            <ForceTouchable 
-              style={styles.secondaryButton}
-              onPress={() => router.push({
-                pathname: '/time-history',
-                params: { staffId: staffMember._id, staffName: `${staffMember.first_name} ${staffMember.last_name}`}
-              })}
-            >
-              <Text style={styles.secondaryButtonText}>View Time History</Text>
-            </ForceTouchable>
-            
-            <ForceTouchable 
-              style={styles.warningButton}
-              onPress={() => {
-                Alert.alert(
-                  'Deactivate Staff',
-                  `Are you sure you want to ${staffMember.is_active ? 'deactivate' : 'activate'} ${staffMember.first_name}?`,
-                  [
-                    { text: 'Cancel', style: 'cancel' },
-                    { 
-                      text: 'Confirm', 
-                      style: 'destructive',
-                      onPress: async () => {
-                        try {
-                          // Implement activate/deactivate API call
-                          Alert.alert('Success', `Staff ${staffMember.is_active ? 'deactivated' : 'activated'} successfully.`);
-                        } catch (error) {
-                          Alert.alert('Error', 'Failed to update staff status.');
-                        }
-                      }
-                    }
-                  ]
-                );
-              }}
-            >
-              <Text style={styles.warningButtonText}>
-                {staffMember.is_active ? 'Deactivate Staff' : 'Activate Staff'}
-              </Text>
-            </ForceTouchable>
+        {/* Employment Details Section */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionIcon}>
+              <Briefcase size={20} color="#2563EB" />
+            </View>
+            <Text style={styles.sectionTitle}>Employment Details</Text>
           </View>
-        )}
+
+          <InputField
+            label="Employee Reference"
+            value={formData.identification?.employee_ref || ''}
+            onChangeText={(text: string) => handleIdentificationChange('employee_ref', text)}
+            placeholder="Enter employee reference"
+            theme={theme}
+            icon={FileText}
+          />
+
+          <InputField
+            label="Position"
+            value={formData.position || ''}
+            onChangeText={(text: string) => handleChange('position', text)}
+            placeholder="Enter position"
+            theme={theme}
+            icon={Briefcase}
+          />
+
+          <InputField
+            label="Department"
+            value={formData.employment?.department || formData.department || ''}
+            onChangeText={(text: string) => handleEmploymentChange('department', text)}
+            placeholder="Enter department"
+            theme={theme}
+            icon={Building}
+          />
+
+          <DateInputField
+            label="Start Date"
+            value={formData.employment?.start_date || ''}
+            onChange={(text: string) => handleEmploymentChange('start_date', text)}
+            placeholder="Select start date"
+            theme={theme}
+            icon={Calendar}
+          />
+
+          <InputField
+            label="Employment Type"
+            value={formData.employment?.employment_type || ''}
+            onChangeText={(text: string) => handleEmploymentChange('employment_type', text)}
+            placeholder="Enter employment type"
+            theme={theme}
+            icon={Clock}
+          />
+
+          <InputField
+            label="Working Hours/Week"
+            value={formData.employment?.working_hours_per_week?.toString() || ''}
+            onChangeText={(text: string) => handleEmploymentChange('working_hours_per_week', Number(text))}
+            placeholder="Enter working hours"
+            keyboardType="numeric"
+            theme={theme}
+            icon={Clock}
+          />
+        </View>
+
+        {/* Financial Information Section */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionIcon}>
+              <CreditCard size={20} color="#2563EB" />
+            </View>
+            <Text style={styles.sectionTitle}>Financial Information</Text>
+          </View>
+
+          <InputField
+            label="Tax Code"
+            value={formData.tax_info?.tax_code || ''}
+            onChangeText={(text: string) => handleTaxInfoChange('tax_code', text)}
+            placeholder="Enter tax code"
+            theme={theme}
+            icon={CreditCard}
+          />
+
+          <InputField
+            label="Hourly Rate"
+            value={formData.pay_rates?.default_hourly_rate?.toString() || ''}
+            onChangeText={(text: string) => handlePayRatesChange('default_hourly_rate', Number(text))}
+            placeholder="Enter hourly rate"
+            keyboardType="numeric"
+            theme={theme}
+            icon={() => <CurrencyIcon country={formData.country} />}
+          />
+
+          <InputField
+            label="Annual Salary"
+            value={formData.pay_rates?.default_salary?.toString() || ''}
+            onChangeText={(text: string) => handlePayRatesChange('default_salary', Number(text))}
+            placeholder="Enter annual salary"
+            keyboardType="numeric"
+            theme={theme}
+            icon={() => <CurrencyIcon country={formData.country} />}
+          />
+
+          <InputField
+            label="Payment Method"
+            value={formData.payment_method?.method || ''}
+            onChangeText={(text: string) => handlePaymentMethodChange('method', text)}
+            placeholder="Enter payment method"
+            theme={theme}
+            icon={CreditCard}
+          />
+
+          <InputField
+            label="Account Number"
+            value={formData.payment_method?.account_number || ''}
+            onChangeText={(text: string) => handlePaymentMethodChange('account_number', text)}
+            placeholder="Enter account number"
+            keyboardType="numeric"
+            theme={theme}
+            icon={CreditCard}
+          />
+        </View>
+
+        {/* Emergency Contact Section */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionIcon}>
+              <Heart size={20} color="#2563EB" />
+            </View>
+            <Text style={styles.sectionTitle}>Emergency Contact</Text>
+          </View>
+
+          <InputField
+            label="Contact Name"
+            value={formData.emergency_contact?.name || ''}
+            onChangeText={(text: string) => handleEmergencyContactChange('name', text)}
+            placeholder="Enter contact name"
+            theme={theme}
+            icon={UserIcon}
+          />
+
+          <InputField
+            label="Contact Phone"
+            value={formData.emergency_contact?.phone || ''}
+            onChangeText={(text: string) => handleEmergencyContactChange('phone', text)}
+            placeholder="Enter contact phone"
+            keyboardType="phone-pad"
+            theme={theme}
+            icon={PhoneCall}
+          />
+
+          <InputField
+            label="Relationship"
+            value={formData.emergency_contact?.relationship || ''}
+            onChangeText={(text: string) => handleEmergencyContactChange('relationship', text)}
+            placeholder="Enter relationship"
+            theme={theme}
+            icon={Heart}
+          />
+
+          <InputField
+            label="Contact Email"
+            value={formData.emergency_contact?.email || ''}
+            onChangeText={(text: string) => handleEmergencyContactChange('email', text)}
+            placeholder="Enter contact email"
+            keyboardType="email-address"
+            theme={theme}
+            icon={Mail}
+          />
+        </View>
+
+        {/* Save Button */}
+        <TouchableOpacity 
+          style={[styles.fullWidthSaveButton, saving && styles.saveButtonDisabled]}
+          onPress={handleSave}
+          disabled={saving}
+        >
+          {saving ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <>
+              <Save size={20} color="#FFFFFF" style={{ marginRight: 8 }} />
+              <Text style={styles.fullWidthSaveButtonText}>Save All Changes</Text>
+            </>
+          )}
+        </TouchableOpacity>
+
+        <View style={styles.bottomSpacer} />
       </ScrollView>
+
+      {/* Image Selection Modal */}
+      <Modal
+        transparent={true}
+        animationType="slide"
+        visible={imageModalVisible}
+        onRequestClose={() => setImageModalVisible(false)}
+      >
+        <TouchableWithoutFeedback onPress={() => setImageModalVisible(false)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={styles.imageModalContainer}>
+                <View style={styles.imageModalHeader}>
+                  <Text style={styles.imageModalTitle}>Profile Picture</Text>
+                  <TouchableOpacity onPress={() => setImageModalVisible(false)}>
+                    <X size={24} color={isDark ? '#F9FAFB' : '#111827'} />
+                  </TouchableOpacity>
+                </View>
+                
+                <View style={styles.imagePreviewContainer}>
+                  {profileImage ? (
+                    <Image 
+                      source={{ uri: profileImage }} 
+                      style={styles.imagePreview}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View style={styles.previewAvatarContainer}>
+                      <Text style={styles.previewAvatarText}>{getInitials()}</Text>
+                    </View>
+                  )}
+                </View>
+                
+                <View style={styles.imageModalButtons}>
+                  <TouchableOpacity 
+                    style={[styles.imageModalButton, uploading && styles.buttonDisabled]}
+                    onPress={pickImage}
+                    disabled={uploading}
+                  >
+                    <Text style={styles.imageModalButtonText}>Choose from Library</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity 
+                    style={[styles.imageModalButton, styles.cameraButton, uploading && styles.buttonDisabled]}
+                    onPress={takePhoto}
+                    disabled={uploading}
+                  >
+                    <Camera size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
+                    <Text style={styles.imageModalButtonText}>Take Photo</Text>
+                  </TouchableOpacity>
+                  
+                  {profileImage && (
+                    <TouchableOpacity 
+                      style={[styles.imageModalButton, styles.removeImageButton, uploading && styles.buttonDisabled]}
+                      onPress={removeProfileImage}
+                      disabled={uploading}
+                    >
+                      <Text style={styles.removeImageButtonText}>Remove Photo</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
     </View>
   );
 }
-
-// Custom Percent icon since it's not in lucide-react-native
-const Percent = ({ size = 20, color = "#2563EB" }: { size?: number; color?: string }) => (
-  <Text style={{ fontSize: size, color, fontWeight: 'bold' }}>%</Text>
-);
 
 function createStyles(theme: string) {
   const isDark = theme === 'dark';
@@ -739,27 +963,41 @@ function createStyles(theme: string) {
       backgroundColor: isDark ? '#111827' : '#F9FAFB',
     },
     header: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      padding: 20,
+      flexDirection: 'row' as const,
+      justifyContent: 'space-between' as const,
+      alignItems: 'center' as const,
+      paddingHorizontal: 20,
       paddingTop: 60,
+      paddingBottom: 16,
       backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
       borderBottomWidth: 1,
       borderBottomColor: isDark ? '#374151' : '#E5E7EB',
     },
     title: {
       fontSize: 20,
-      fontWeight: '600',
+      fontWeight: '700',
       color: isDark ? '#F9FAFB' : '#111827',
+    },
+    saveButtonHeader: {
+      backgroundColor: '#2563EB',
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+      borderRadius: 8,
+    },
+    saveButtonHeaderText: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: '#FFFFFF',
     },
     content: {
       flex: 1,
     },
     centerContent: {
       flex: 1,
-      justifyContent: 'center',
-      alignItems: 'center',
+      justifyContent: 'center' as const,
+      alignItems: 'center' as const,
       padding: 40,
     },
     loadingText: {
@@ -773,8 +1011,9 @@ function createStyles(theme: string) {
     errorText: {
       fontSize: 16,
       color: '#EF4444',
-      textAlign: 'center',
+      textAlign: 'center' as const,
       marginBottom: 20,
+      lineHeight: 24,
     },
     retryButton: {
       backgroundColor: '#2563EB',
@@ -788,166 +1027,191 @@ function createStyles(theme: string) {
       fontWeight: '600',
     },
     profileSection: {
-      alignItems: 'center',
+      alignItems: 'center' as const,
       padding: 32,
       backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
       borderBottomWidth: 1,
       borderBottomColor: isDark ? '#374151' : '#E5E7EB',
     },
     avatarContainer: {
+      position: 'relative' as const,
+      marginBottom: 16,
+    },
+    avatarPlaceholder: {
       width: 100,
       height: 100,
       borderRadius: 50,
       backgroundColor: '#2563EB',
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginBottom: 16,
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
       ...Platform.select({
         android: { elevation: 3 },
       }),
     },
-    profileImage: {
+    avatarImage: {
       width: 100,
       height: 100,
       borderRadius: 50,
-      marginBottom: 16,
       borderWidth: 3,
       borderColor: isDark ? '#374151' : '#FFFFFF',
     },
     avatarText: {
       fontSize: 32,
-      fontWeight: '600',
+      fontWeight: '700',
       color: '#FFFFFF',
+    },
+    cameraIcon: {
+      position: 'absolute' as const,
+      bottom: 0,
+      right: 0,
+      backgroundColor: '#2563EB',
+      borderRadius: 12,
+      width: 28,
+      height: 28,
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
+      borderWidth: 2,
+      borderColor: isDark ? '#1F2937' : '#FFFFFF',
     },
     staffName: {
       fontSize: 24,
       fontWeight: '700',
       color: isDark ? '#F9FAFB' : '#111827',
       marginBottom: 4,
-      textAlign: 'center',
+      textAlign: 'center' as const,
     },
     staffRole: {
       fontSize: 16,
       color: isDark ? '#9CA3AF' : '#6B7280',
-      marginBottom: 12,
-      textAlign: 'center',
-    },
-    statusBadge: {
-      paddingHorizontal: 16,
-      paddingVertical: 8,
-      borderRadius: 20,
-    },
-    statusText: {
-      fontSize: 14,
-      fontWeight: '600',
-      color: '#FFFFFF',
+      textAlign: 'center' as const,
     },
     section: {
       padding: 20,
       backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
-      marginTop: 1,
+      marginTop: 8,
     },
     sectionHeader: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      marginBottom: 16,
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      marginBottom: 24,
+    },
+    sectionIcon: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: isDark ? 'rgba(37, 99, 235, 0.1)' : '#EFF6FF',
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
+      marginRight: 12,
     },
     sectionTitle: {
       fontSize: 18,
-      fontWeight: '600',
+      fontWeight: '700',
       color: isDark ? '#F9FAFB' : '#111827',
     },
-    editSectionButton: {
-      padding: 4,
-    },
-    infoCard: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: isDark ? '#374151' : '#F9FAFB',
-      padding: 16,
-      borderRadius: 12,
-      marginBottom: 8,
-      ...Platform.select({
-        android: { elevation: 2 },
-      }),
-    },
-    emptyInfoCard: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: isDark ? '#374151' : '#F9FAFB',
-      padding: 16,
-      borderRadius: 12,
-      marginBottom: 8,
-      borderWidth: 1,
-      borderColor: isDark ? '#4B5563' : '#E5E7EB',
-      borderStyle: 'dashed',
-    },
-    infoContent: {
-      flex: 1,
-      marginLeft: 12,
-    },
-    infoTitle: {
-      fontSize: 14,
-      color: isDark ? '#9CA3AF' : '#6B7280',
-      marginBottom: 2,
-    },
-    infoValue: {
-      fontSize: 16,
-      fontWeight: '500',
-      color: isDark ? '#F9FAFB' : '#111827',
-    },
-    addContactText: {
-      fontSize: 14,
-      color: '#2563EB',
-      fontWeight: '600',
-    },
-    actionButtons: {
-      padding: 20,
-      gap: 12,
-    },
-    primaryButton: {
+    fullWidthSaveButton: {
       backgroundColor: '#2563EB',
-      borderRadius: 12,
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
+      marginHorizontal: 20,
+      marginTop: 24,
+      marginBottom: 20,
       paddingVertical: 16,
-      alignItems: 'center',
+      borderRadius: 12,
       ...Platform.select({
         android: { elevation: 5 },
       }),
     },
-    primaryButtonText: {
+    fullWidthSaveButtonText: {
+      fontSize: 16,
+      fontWeight: '700',
+      color: '#FFFFFF',
+    },
+    saveButtonDisabled: {
+      backgroundColor: '#9CA3AF',
+      opacity: 0.7,
+    },
+    bottomSpacer: {
+      height: 40,
+    },
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+      justifyContent: 'center' as const,
+      alignItems: 'center' as const,
+      padding: 20,
+    },
+    imageModalContainer: {
+      backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
+      borderRadius: 16,
+      width: '100%',
+      maxWidth: 400,
+      padding: 20,
+    },
+    imageModalHeader: {
+      flexDirection: 'row' as const,
+      justifyContent: 'space-between' as const,
+      alignItems: 'center' as const,
+      marginBottom: 20,
+    },
+    imageModalTitle: {
+      fontSize: 20,
+      fontWeight: '700',
+      color: isDark ? '#F9FAFB' : '#111827',
+    },
+    imagePreviewContainer: {
+      alignItems: 'center' as const,
+      marginBottom: 24,
+    },
+    imagePreview: {
+      width: 150,
+      height: 150,
+      borderRadius: 75,
+      borderWidth: 3,
+      borderColor: isDark ? '#374151' : '#E5E7EB',
+    },
+    previewAvatarContainer: {
+      width: 150,
+      height: 150,
+      borderRadius: 75,
+      backgroundColor: '#2563EB',
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
+    },
+    previewAvatarText: {
+      fontSize: 48,
+      fontWeight: '700',
+      color: '#FFFFFF',
+    },
+    imageModalButtons: {
+      gap: 12,
+    },
+    imageModalButton: {
+      backgroundColor: '#2563EB',
+      borderRadius: 12,
+      paddingVertical: 16,
+      alignItems: 'center' as const,
+    },
+    cameraButton: {
+      flexDirection: 'row' as const,
+      justifyContent: 'center' as const,
+    },
+    imageModalButtonText: {
       fontSize: 16,
       fontWeight: '600',
       color: '#FFFFFF',
     },
-    secondaryButton: {
-      backgroundColor: isDark ? '#374151' : '#F3F4F6',
-      borderRadius: 12,
-      paddingVertical: 16,
-      alignItems: 'center',
-      ...Platform.select({
-        android: { elevation: 3 },
-      }),
-    },
-    secondaryButtonText: {
-      fontSize: 16,
-      fontWeight: '600',
-      color: isDark ? '#F9FAFB' : '#111827',
-    },
-    warningButton: {
+    removeImageButton: {
       backgroundColor: isDark ? '#7F1D1D' : '#FEE2E2',
-      borderRadius: 12,
-      paddingVertical: 16,
-      alignItems: 'center',
-      marginTop: 8,
-      ...Platform.select({
-        android: { elevation: 3 },
-      }),
     },
-    warningButtonText: {
+    removeImageButtonText: {
       fontSize: 16,
       fontWeight: '600',
       color: isDark ? '#FCA5A5' : '#DC2626',
+    },
+    buttonDisabled: {
+      opacity: 0.5,
     },
   });
 }

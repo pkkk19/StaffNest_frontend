@@ -1,5 +1,5 @@
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Switch } from 'react-native';
-import { User, Bell, Shield, Globe, Palette, CircleHelp as HelpCircle, LogOut, ChevronRight, Moon, Sun, ChevronDown, Building } from 'lucide-react-native';
+import { User, Users, Bell, Shield, Globe, Palette, CircleHelp as HelpCircle, LogOut, ChevronRight, Moon, Sun, ChevronDown, Building } from 'lucide-react-native';
 import { useState } from 'react';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -60,7 +60,7 @@ export default function Settings() {
             icon={User}
             title={t('personalInfo')}
             subtitle={t('manageProfileDetails')}
-            onPress={() => router.push('/edit-profile')}
+            onPress={() => router.push('/pages/edit-profile')}
           />
         </View>
 
@@ -191,6 +191,18 @@ export default function Settings() {
       )}
   </View>
         )}
+
+        {user?.company_id && (
+  <View style={styles.section}>
+    <Text style={styles.sectionTitle}>Company Roles</Text>
+    <SettingItem
+      icon={Users}
+      title="Manage Roles"
+      subtitle="Add and edit job positions"
+      onPress={() => router.push('/pages/roles')}
+    />
+  </View>
+)}
 
         {/* Support Section */}
         <View style={styles.section}>

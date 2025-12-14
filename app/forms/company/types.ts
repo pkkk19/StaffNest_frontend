@@ -1,5 +1,10 @@
 import { Region } from 'react-native-maps';
 
+export interface Coordinate {
+  latitude: number;
+  longitude: number;
+}
+
 export interface CompanyLocation {
   _id?: string;
   name: string;
@@ -46,6 +51,10 @@ export interface LocationModalProps {
   onAddressChange: (address: string) => void;
   onRadiusChange: (radius: number) => void;
   onRegionChange: (region: any) => void; // Add this line
+  onCoordinateChange: (coordinate: {
+    latitude: number;
+    longitude: number;
+  }) => void;
 }
 
 export interface LocationModalState {

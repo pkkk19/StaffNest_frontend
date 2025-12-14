@@ -1,90 +1,228 @@
-import React from 'react';
-import { View, TextInput, TouchableOpacity, ActivityIndicator, StyleSheet, Platform } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+// app/chat/components/MessageInput.tsx
+import React, { useState, useRef } from 'react';
+import {
+  View,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  Animated,
+  Platform,
+  Keyboard,
+  Text
+} from 'react-native';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { useChatTheme } from '../hooks/useChatTheme';
 
 interface MessageInputProps {
   newMessage: string;
-  setNewMessage: (text: string) => void;
+  setNewMessage: (message: string) => void;
   sending: boolean;
   onSendMessage: () => void;
+  onAttachFile: () => void;
+  isReplying?: boolean;
+  isEditing?: boolean;
+  onCancelEdit?: () => void;
+  onCancelReply?: () => void;
 }
 
-export const MessageInput: React.FC<MessageInputProps> = ({
+export function MessageInput({
   newMessage,
   setNewMessage,
   sending,
-  onSendMessage
-}) => {
+  onSendMessage,
+  onAttachFile,
+  isReplying = false,
+  isEditing = false,
+  onCancelEdit,
+  onCancelReply
+}: MessageInputProps) {
   const { colors, isDark } = useChatTheme();
-  const styles = createStyles(colors);
+  const inputRef = useRef<TextInput>(null);
+  const [isFocused, setIsFocused] = useState(false);
+  
+  const styles = createStyles(colors, isDark);
+
+  const handleSend = () => {
+    if (newMessage.trim() && !sending) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      onSendMessage();
+      inputRef.current?.blur();
+    }
+  };
+
+  const handleFocus = () => {
+    setIsFocused(true);
+  };
+
+  const handleBlur = () => {
+    setIsFocused(false);
+  };
 
   return (
-    <View style={styles.inputContainer}>
-      <View style={styles.inputWrapper}>
+    <View style={styles.container}>
+      {/* Cancel edit/reply buttons */}
+      {(isEditing || isReplying) && (
+        <View style={styles.actionButtonsContainer}>
+          <TouchableOpacity 
+            style={styles.cancelButton}
+            onPress={isEditing ? onCancelEdit : onCancelReply}
+          >
+            <Ionicons name="close" size={20} color={colors.textTertiary} />
+            <Text style={styles.cancelButtonText}>
+              {isEditing ? 'Cancel Edit' : 'Cancel Reply'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      <View style={styles.inputContainer}>
+        {/* Attach File Button */}
+        <TouchableOpacity 
+          style={styles.attachButton}
+          onPress={onAttachFile}
+          disabled={sending}
+        >
+          <Ionicons 
+            name="add" 
+            size={24} 
+            color={colors.textTertiary} 
+          />
+        </TouchableOpacity>
+
+        {/* Text Input */}
         <TextInput
+          ref={inputRef}
           style={styles.textInput}
-          placeholder="Type a message..."
-          placeholderTextColor={colors.textTertiary}
           value={newMessage}
           onChangeText={setNewMessage}
+          placeholder={isEditing ? "Edit message..." : "Type a message..."}
+          placeholderTextColor={colors.textTertiary}
           multiline
           maxLength={1000}
+          editable={!sending}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
+          onSubmitEditing={handleSend}
+          blurOnSubmit={false}
         />
-        <TouchableOpacity 
-          style={[
-            styles.sendButton,
-            (!newMessage.trim() || sending) && styles.sendButtonDisabled
-          ]}
-          onPress={onSendMessage}
-          disabled={!newMessage.trim() || sending}
-        >
-          {sending ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
-          ) : (
-            <Ionicons name="send" size={20} color="#FFFFFF" />
-          )}
-        </TouchableOpacity>
+
+        {/* Send Button or Mic Button */}
+        {newMessage.trim() ? (
+          <TouchableOpacity 
+            style={styles.sendButton}
+            onPress={handleSend}
+            disabled={sending || !newMessage.trim()}
+          >
+            {sending ? (
+              <Animated.View style={styles.sendingIndicator}>
+                <Ionicons 
+                  name="time-outline" 
+                  size={20} 
+                  color="white" 
+                />
+              </Animated.View>
+            ) : (
+              <View style={styles.sendButtonIcon}>
+                <Ionicons 
+                  name="send" 
+                  size={18} 
+                  color="white" 
+                />
+              </View>
+            )}
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity 
+            style={styles.micButton}
+            onPress={() => {
+              // Handle voice message
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            }}
+            disabled={sending}
+          >
+            <MaterialIcons 
+              name="keyboard-voice" 
+              size={24} 
+              color={colors.textTertiary} 
+            />
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );
-};
+}
 
-const createStyles = (colors: any) => StyleSheet.create({
-  inputContainer: {
-    padding: 16,
-    paddingTop: 12,
-    paddingBottom: Platform.OS === 'ios' ? 34 : 16,
+const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
+  container: {
     backgroundColor: colors.backgroundSecondary,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
-  inputWrapper: {
+  actionButtonsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingBottom: 8,
+  },
+  cancelButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+    borderRadius: 16,
+    alignSelf: 'flex-start',
+  },
+  cancelButtonText: {
+    color: colors.textTertiary,
+    fontSize: 12,
+    fontWeight: '500',
+    marginLeft: 4,
+  },
+  inputContainer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    backgroundColor: colors.inputBackground,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)',
     borderRadius: 24,
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     paddingVertical: 8,
-    minHeight: 48,
+  },
+  attachButton: {
+    padding: 8,
+    marginRight: 4,
   },
   textInput: {
     flex: 1,
     fontSize: 16,
-    maxHeight: 100,
-    paddingVertical: 8,
     color: colors.textPrimary,
+    maxHeight: 100,
+    minHeight: 40,
+    paddingVertical: Platform.OS === 'ios' ? 10 : 8,
+    paddingHorizontal: 8,
+    textAlignVertical: 'center',
   },
   sendButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.sendButton,
+    padding: 8,
+    marginLeft: 4,
+  },
+  sendButtonIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.currentUserBubble,
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 8,
   },
-  sendButtonDisabled: {
-    backgroundColor: colors.sendButtonDisabled,
+  sendingIndicator: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.textTertiary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  micButton: {
+    padding: 8,
+    marginLeft: 4,
   },
 });
