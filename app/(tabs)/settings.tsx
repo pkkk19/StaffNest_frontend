@@ -1,5 +1,6 @@
+// app/settings.tsx
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Switch } from 'react-native';
-import { User, Users, Bell, Shield, Globe, Palette, CircleHelp as HelpCircle, LogOut, ChevronRight, Moon, Sun, ChevronDown, Building } from 'lucide-react-native';
+import { User, Users, Bell, Shield, Globe, Palette, CircleHelp as HelpCircle, LogOut, ChevronRight, Moon, Sun, ChevronDown, Building, Mail } from 'lucide-react-native';
 import { useState } from 'react';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -11,6 +12,7 @@ export default function Settings() {
   const { language, setLanguage, t } = useLanguage();
   const { logout, user } = useAuth();
   const [showLanguageDropdown, setShowLanguageDropdown] = useState(false);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
 
   const styles = createStyles(theme);
 
@@ -151,12 +153,19 @@ export default function Settings() {
         {/* Notifications Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t('notifications')}</Text>
-          <SettingItem
-            icon={Bell}
-            title={t('notificationSettings')}
-            subtitle={t('manageNotifications')}
-            onPress={() => {}}
-          />
+          <View style={styles.settingItem}>
+            <Mail size={24} color={theme === 'dark' ? '#9CA3AF' : '#6B7280'} />
+            <View style={styles.settingContent}>
+              <Text style={styles.settingTitle}>Push Notifications</Text>
+              <Text style={styles.settingSubtitle}>Receive notifications</Text>
+            </View>
+            <Switch
+              value={notificationsEnabled}
+              onValueChange={setNotificationsEnabled}
+              trackColor={{ false: '#767577', true: '#2563EB' }}
+              thumbColor={notificationsEnabled ? '#f4f3f4' : '#f4f3f4'}
+            />
+          </View>
         </View>
 
         {/* Security Section */}
@@ -173,36 +182,36 @@ export default function Settings() {
         {/* Company Information Section - Only visible for admin */}
         {user?.role === 'admin' && (
           <View style={styles.section}>
-    <Text style={styles.sectionTitle}>{t('company')}</Text>
-    {user?.company_id ? (
-        <SettingItem
-          icon={Building}
-          title={t('companyInfo')}
-          subtitle={t('manageCompanyDetails')}
-          onPress={() => router.push('/forms/company-info')}
-        />
-      ) : (
-        <SettingItem
-          icon={Building}
-          title="Setup Company"
-          subtitle="Create your company profile"
-          onPress={() => router.push('/forms/company-setup')}
-        />
-      )}
-  </View>
+            <Text style={styles.sectionTitle}>{t('company')}</Text>
+            {user?.company_id ? (
+              <SettingItem
+                icon={Building}
+                title={t('companyInfo')}
+                subtitle={t('manageCompanyDetails')}
+                onPress={() => router.push('/forms/company-info')}
+              />
+            ) : (
+              <SettingItem
+                icon={Building}
+                title="Setup Company"
+                subtitle="Create your company profile"
+                onPress={() => router.push('/forms/company-setup')}
+              />
+            )}
+          </View>
         )}
 
         {user?.company_id && (
-  <View style={styles.section}>
-    <Text style={styles.sectionTitle}>Company Roles</Text>
-    <SettingItem
-      icon={Users}
-      title="Manage Roles"
-      subtitle="Add and edit job positions"
-      onPress={() => router.push('/pages/roles')}
-    />
-  </View>
-)}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Company Roles</Text>
+            <SettingItem
+              icon={Users}
+              title="Manage Roles"
+              subtitle="Add and edit job positions"
+              onPress={() => router.push('/pages/roles')}
+            />
+          </View>
+        )}
 
         {/* Support Section */}
         <View style={styles.section}>

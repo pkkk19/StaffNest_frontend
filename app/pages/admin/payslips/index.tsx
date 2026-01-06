@@ -10,25 +10,31 @@ import {
   RefreshControl,
   Platform,
   TextInput,
+  Modal,
+  Linking,
 } from 'react-native';
 import { 
   ArrowLeft, 
   Search, 
   Filter, 
-  Eye, 
   Edit, 
   Plus, 
   ChevronRight, 
   User,
   FileText,
   PoundSterling,
-  Calendar
+  Calendar,
+  Download,
+  File,
+  Eye,
+  ExternalLink,
 } from 'lucide-react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { router } from 'expo-router';
 import ForceTouchable from '@/components/ForceTouchable';
 import { staffAPI, payslipAPI } from '@/services/api';
+import * as WebBrowser from 'expo-web-browser';
 
 type StaffMember = {
   _id: string;
@@ -62,6 +68,8 @@ type Payslip = {
   net_pay: number;
   status: string;
   downloadUrl?: string;
+  pdf_url?: string;
+  pdf_generated_at?: string;
   employee_id?: string | { _id: string };
 };
 
@@ -74,6 +82,9 @@ export default function AdminPayslips() {
   const [employees, setEmployees] = useState<EmployeeWithPayslips[]>([]);
   const [filteredEmployees, setFilteredEmployees] = useState<EmployeeWithPayslips[]>([]);
   const [activeFilter, setActiveFilter] = useState<'all' | 'withPayslips' | 'noPayslips'>('all');
+  const [generatingPDFs, setGeneratingPDFs] = useState<Record<string, boolean>>({});
+  const [pdfModalVisible, setPdfModalVisible] = useState(false);
+  const [selectedPdfUrl, setSelectedPdfUrl] = useState<string | null>(null);
 
   const styles = createStyles(theme);
 
@@ -204,17 +215,110 @@ export default function AdminPayslips() {
     }
   };
 
-// In your AdminPayslips component
-const handleEditPayslip = (payslip: Payslip, employee: StaffMember) => {
-  router.push({
-    pathname: `/pages/admin/edit-payslip/${payslip._id}`,
-    params: {
-      id: payslip._id,
-      employeeId: employee._id,
-      employeeName: `${employee.first_name} ${employee.last_name}`
+  const handleEditPayslip = (payslip: Payslip, employee: StaffMember) => {
+    router.push({
+      pathname: `/pages/admin/edit-payslip/${payslip._id}`,
+      params: {
+        id: payslip._id,
+        employeeId: employee._id,
+        employeeName: `${employee.first_name} ${employee.last_name}`
+      }
+    } as any);
+  };
+
+  const handleGeneratePDF = async (payslipId: string) => {
+    try {
+      setGeneratingPDFs(prev => ({ ...prev, [payslipId]: true }));
+      
+      const response = await payslipAPI.generatePDF(payslipId);
+      
+      if (response.data?.url) {
+        Alert.alert(
+          '✅ PDF Generated',
+          'Payslip PDF has been generated successfully!',
+          [{ text: 'OK' }]
+        );
+        
+        // Refresh the data to show updated PDF status
+        loadData();
+      } else {
+        Alert.alert('❌ Error', 'Failed to generate PDF');
+      }
+    } catch (error: any) {
+      console.error('PDF generation failed:', error);
+      Alert.alert(
+        '❌ Error', 
+        error.response?.data?.message || 'Failed to generate PDF. Please try again.'
+      );
+    } finally {
+      setGeneratingPDFs(prev => ({ ...prev, [payslipId]: false }));
     }
-  } as any);
-};
+  };
+
+  const handlePDFOptions = (payslip: Payslip) => {
+    if (!payslip.pdf_url) {
+      Alert.alert(
+        '📄 PDF Not Generated',
+        'This payslip PDF has not been generated yet. Would you like to generate it now?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Generate PDF', 
+            onPress: () => handleGeneratePDF(payslip._id)
+          }
+        ]
+      );
+      return;
+    }
+
+    Alert.alert(
+      '📄 Payslip PDF',
+      'What would you like to do with this PDF?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: '👁️ View in App', 
+          onPress: () => {
+            setSelectedPdfUrl(payslip.pdf_url!);
+            setPdfModalVisible(true);
+          }
+        },
+        { 
+          text: '🌐 Open in Browser', 
+          onPress: () => openInBrowser(payslip.pdf_url!)
+        },
+        { 
+          text: '⬇️ Download PDF', 
+          onPress: () => downloadPDF(payslip)
+        },
+      ]
+    );
+  };
+
+  const openInBrowser = async (url: string) => {
+    try {
+      await WebBrowser.openBrowserAsync(url);
+    } catch (error) {
+      console.error('Error opening browser:', error);
+      Alert.alert('Error', 'Could not open PDF in browser. You can try copying the URL instead.');
+    }
+  };
+
+  const downloadPDF = (payslip: Payslip) => {
+    // For now, we'll open in browser which allows download
+    // In a real app, you would use FileSystem API to download
+    Alert.alert(
+      '⬇️ Download PDF',
+      'Opening in browser where you can download the PDF.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Open', 
+          onPress: () => openInBrowser(payslip.pdf_url!)
+        }
+      ]
+    );
+  };
 
   const formatCurrency = (amount: number) => {
     return `£${amount.toLocaleString('en-GB', { minimumFractionDigits: 2 })}`;
@@ -226,6 +330,17 @@ const handleEditPayslip = (payslip: Payslip, employee: StaffMember) => {
       day: 'numeric',
       month: 'short',
       year: 'numeric'
+    });
+  };
+
+  const formatDateTime = (dateString: string) => {
+    if (!dateString) return 'Not generated';
+    return new Date(dateString).toLocaleDateString('en-GB', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
     });
   };
 
@@ -340,6 +455,14 @@ const handleEditPayslip = (payslip: Payslip, employee: StaffMember) => {
                   <PoundSterling size={14} color="#10B981" />{' '}
                   {formatCurrency(item.recentPayslip.net_pay)}
                 </Text>
+                {item.recentPayslip.pdf_url && (
+                  <TouchableOpacity onPress={() => handlePDFOptions(item.recentPayslip!)}>
+                    <Text style={styles.pdfInfo}>
+                      <Eye size={12} color="#2563EB" />{' '}
+                      PDF generated: {formatDateTime(item.recentPayslip.pdf_generated_at || '')}
+                    </Text>
+                  </TouchableOpacity>
+                )}
               </View>
             )}
 
@@ -347,19 +470,57 @@ const handleEditPayslip = (payslip: Payslip, employee: StaffMember) => {
               <View style={styles.payslipsList}>
                 {item.payslips.map((payslip, index) => (
                   <View key={payslip._id || index} style={styles.payslipItem}>
-                    <View>
-                      <Text style={styles.payslipNumber}>#{payslip.payslip_number || 'N/A'}</Text>
+                    <View style={styles.payslipInfo}>
+                      <View style={styles.payslipHeader}>
+                        <Text style={styles.payslipNumber}>#{payslip.payslip_number || 'N/A'}</Text>
+                        <View style={[
+                          styles.payslipStatusBadge, 
+                          { backgroundColor: getStatusColor(payslip.status) + '20' }
+                        ]}>
+                          <Text style={[
+                            styles.payslipStatusText, 
+                            { color: getStatusColor(payslip.status) }
+                          ]}>
+                            {payslip.status?.charAt(0).toUpperCase() + payslip.status?.slice(1)}
+                          </Text>
+                        </View>
+                      </View>
                       <Text style={styles.payslipPeriod}>
-                        {formatDate(payslip.pay_period_start)}
+                        {formatDate(payslip.pay_period_start)} - {formatDate(payslip.pay_period_end)}
                       </Text>
+                      <Text style={styles.payslipNetPay}>
+                        Net: {formatCurrency(payslip.net_pay)}
+                      </Text>
+                      {payslip.pdf_url && (
+                        <TouchableOpacity onPress={() => handlePDFOptions(payslip)}>
+                          <Text style={styles.pdfGenerated}>
+                            <Eye size={10} color="#10B981" /> Tap to view/download
+                          </Text>
+                        </TouchableOpacity>
+                      )}
                     </View>
                     <View style={styles.payslipActions}>
-                      
                       <ForceTouchable
                         style={styles.payslipActionButton}
                         onPress={() => handleEditPayslip(payslip, item)}
                       >
                         <Edit size={14} color="#2563EB" />
+                      </ForceTouchable>
+                      <ForceTouchable
+                        style={[
+                          styles.payslipActionButton,
+                          generatingPDFs[payslip._id] && styles.disabledButton
+                        ]}
+                        onPress={() => payslip.pdf_url ? handlePDFOptions(payslip) : handleGeneratePDF(payslip._id)}
+                        disabled={generatingPDFs[payslip._id]}
+                      >
+                        {generatingPDFs[payslip._id] ? (
+                          <ActivityIndicator size="small" color="#2563EB" />
+                        ) : payslip.pdf_url ? (
+                          <Eye size={14} color="#10B981" />
+                        ) : (
+                          <File size={14} color="#F59E0B" />
+                        )}
                       </ForceTouchable>
                     </View>
                   </View>
@@ -384,6 +545,122 @@ const handleEditPayslip = (payslip: Payslip, employee: StaffMember) => {
     </View>
   );
 
+  const handleBulkGeneratePDFs = async () => {
+    Alert.alert(
+      '📄 Bulk Generate PDFs',
+      'Generate PDFs for all payslips without PDFs?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Generate', 
+          onPress: async () => {
+            try {
+              // Find all payslips without PDFs
+              const payslipsWithoutPDF = employees.flatMap(emp => 
+                emp.payslips.filter(p => !p.pdf_url)
+              );
+              
+              if (payslipsWithoutPDF.length === 0) {
+                Alert.alert('ℹ️ Info', 'All payslips already have PDFs generated.');
+                return;
+              }
+              
+              Alert.alert(
+                '⚠️ Confirm',
+                `Generate PDFs for ${payslipsWithoutPDF.length} payslip(s)?`,
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  { 
+                    text: 'Generate All', 
+                    onPress: async () => {
+                      // Generate PDFs one by one
+                      for (const payslip of payslipsWithoutPDF) {
+                        try {
+                          await handleGeneratePDF(payslip._id);
+                        } catch (error) {
+                          console.error(`Failed to generate PDF for payslip ${payslip._id}:`, error);
+                        }
+                      }
+                      Alert.alert('✅ Completed', 'Bulk PDF generation completed.');
+                    }
+                  }
+                ]
+              );
+            } catch (error) {
+              console.error('Bulk generation failed:', error);
+              Alert.alert('❌ Error', 'Failed to start bulk PDF generation.');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const PDFModal = () => (
+    <Modal
+      visible={pdfModalVisible}
+      animationType="slide"
+      transparent={true}
+      onRequestClose={() => setPdfModalVisible(false)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Payslip PDF</Text>
+            <ForceTouchable 
+              style={styles.modalCloseButton}
+              onPress={() => setPdfModalVisible(false)}
+            >
+              <Text style={styles.modalCloseText}>✕</Text>
+            </ForceTouchable>
+          </View>
+          
+          <View style={styles.modalContent}>
+            <Text style={styles.modalText}>
+              The PDF is available for viewing or downloading.
+            </Text>
+            
+            <View style={styles.pdfButtonsContainer}>
+              <ForceTouchable
+                style={styles.pdfButton}
+                onPress={() => {
+                  setPdfModalVisible(false);
+                  if (selectedPdfUrl) openInBrowser(selectedPdfUrl);
+                }}
+              >
+                <ExternalLink size={20} color="#FFFFFF" />
+                <Text style={styles.pdfButtonText}>Open in Browser</Text>
+              </ForceTouchable>
+              
+              <ForceTouchable
+                style={[styles.pdfButton, styles.downloadButton]}
+                onPress={() => {
+                  setPdfModalVisible(false);
+                  Alert.alert(
+                    '⬇️ Download Started',
+                    'The PDF will open in your browser where you can download it.',
+                    [{ text: 'OK' }]
+                  );
+                  if (selectedPdfUrl) Linking.openURL(selectedPdfUrl);
+                }}
+              >
+                <Download size={20} color="#FFFFFF" />
+                <Text style={styles.pdfButtonText}>Download PDF</Text>
+              </ForceTouchable>
+            </View>
+            
+            <View style={styles.pdfUrlContainer}>
+              <Text style={styles.pdfUrlLabel}>PDF URL:</Text>
+              <Text style={styles.pdfUrl} numberOfLines={2}>
+                {selectedPdfUrl}
+              </Text>
+            </View>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+
   if (loading) {
     return (
       <View style={[styles.container, styles.center]}>
@@ -400,8 +677,11 @@ const handleEditPayslip = (payslip: Payslip, employee: StaffMember) => {
           <ArrowLeft size={24} color={theme === 'dark' ? '#F9FAFB' : '#374151'} />
         </ForceTouchable>
         <Text style={styles.title}>Employee Payslips</Text>
-        <ForceTouchable onPress={() => handleCreatePayslip()}>
-          <Plus size={24} color={theme === 'dark' ? '#F9FAFB' : '#374151'} />
+        <ForceTouchable 
+          style={styles.bulkGenerateButton}
+          onPress={handleBulkGeneratePDFs}
+        >
+          <File size={16} color="#FFFFFF" />
         </ForceTouchable>
       </View>
 
@@ -492,6 +772,42 @@ const handleEditPayslip = (payslip: Payslip, employee: StaffMember) => {
               </View>
             </View>
 
+            {/* PDF Stats */}
+            <View style={styles.pdfStatsCard}>
+              <Text style={styles.pdfStatsTitle}>PDF Status</Text>
+              <View style={styles.pdfStatsGrid}>
+                <View style={styles.pdfStatItem}>
+                  <View style={[styles.pdfStatIcon, { backgroundColor: '#10B98120' }]}>
+                    <File size={16} color="#10B981" />
+                  </View>
+                  <Text style={styles.pdfStatValue}>
+                    {employees.reduce((sum, emp) => 
+                      sum + emp.payslips.filter(p => p.pdf_url).length, 0
+                    )}
+                  </Text>
+                  <Text style={styles.pdfStatLabel}>With PDF</Text>
+                </View>
+                <View style={styles.pdfStatItem}>
+                  <View style={[styles.pdfStatIcon, { backgroundColor: '#F59E0B20' }]}>
+                    <File size={16} color="#F59E0B" />
+                  </View>
+                  <Text style={styles.pdfStatValue}>
+                    {employees.reduce((sum, emp) => 
+                      sum + emp.payslips.filter(p => !p.pdf_url).length, 0
+                    )}
+                  </Text>
+                  <Text style={styles.pdfStatLabel}>Without PDF</Text>
+                </View>
+                <ForceTouchable 
+                  style={styles.generateAllButton}
+                  onPress={handleBulkGeneratePDFs}
+                >
+                  <File size={14} color="#FFFFFF" />
+                  <Text style={styles.generateAllButtonText}>Generate All</Text>
+                </ForceTouchable>
+              </View>
+            </View>
+
             {filteredEmployees.map((employee, index) => (
               <React.Fragment key={employee._id}>
                 {renderEmployeeItem({ item: employee })}
@@ -503,6 +819,8 @@ const handleEditPayslip = (payslip: Payslip, employee: StaffMember) => {
           </>
         )}
       </ScrollView>
+
+      <PDFModal />
     </View>
   );
 }
@@ -530,6 +848,7 @@ function createStyles(theme: string) {
       alignItems: 'center',
       padding: 20,
       paddingTop: Platform.OS === 'ios' ? 60 : 40,
+      marginTop: Platform.OS === 'android' ? 20 : 0,
       backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
       borderBottomWidth: 1,
       borderBottomColor: isDark ? '#374151' : '#E5E7EB',
@@ -538,6 +857,11 @@ function createStyles(theme: string) {
       fontSize: 20,
       fontWeight: '600',
       color: isDark ? '#F9FAFB' : '#111827',
+    },
+    bulkGenerateButton: {
+      backgroundColor: '#2563EB',
+      borderRadius: 8,
+      padding: 8,
     },
     searchContainer: {
       flexDirection: 'row',
@@ -614,6 +938,73 @@ function createStyles(theme: string) {
           shadowRadius: 8,
         },
       }),
+    },
+    pdfStatsCard: {
+      backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
+      borderRadius: 12,
+      padding: 20,
+      marginHorizontal: 16,
+      marginBottom: 16,
+      ...Platform.select({
+        android: {
+          elevation: 3,
+        },
+        ios: {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.1,
+          shadowRadius: 8,
+        },
+      }),
+    },
+    pdfStatsTitle: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: isDark ? '#F9FAFB' : '#111827',
+      marginBottom: 16,
+    },
+    pdfStatsGrid: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    pdfStatItem: {
+      alignItems: 'center',
+      flex: 1,
+    },
+    pdfStatIcon: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginBottom: 8,
+    },
+    pdfStatValue: {
+      fontSize: 20,
+      fontWeight: '700',
+      color: isDark ? '#F9FAFB' : '#111827',
+      marginBottom: 4,
+    },
+    pdfStatLabel: {
+      fontSize: 12,
+      color: isDark ? '#9CA3AF' : '#6B7280',
+      textAlign: 'center',
+    },
+    generateAllButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: '#2563EB',
+      borderRadius: 8,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      gap: 8,
+      marginLeft: 16,
+    },
+    generateAllButtonText: {
+      fontSize: 14,
+      fontWeight: '500',
+      color: '#FFFFFF',
     },
     summaryTitle: {
       fontSize: 18,
@@ -812,6 +1203,14 @@ function createStyles(theme: string) {
       alignItems: 'center',
       gap: 4,
     },
+    pdfInfo: {
+      fontSize: 10,
+      color: '#2563EB',
+      marginTop: 4,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+    },
     payslipsList: {
       marginTop: 8,
     },
@@ -819,26 +1218,63 @@ function createStyles(theme: string) {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      paddingVertical: 10,
+      paddingVertical: 12,
       borderBottomWidth: 1,
       borderBottomColor: isDark ? '#37415120' : '#E5E7EB20',
     },
+    payslipInfo: {
+      flex: 1,
+      marginRight: 12,
+    },
+    payslipHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 4,
+    },
     payslipNumber: {
       fontSize: 14,
-      fontWeight: '500',
+      fontWeight: '600',
       color: isDark ? '#F9FAFB' : '#111827',
+      marginRight: 8,
+    },
+    payslipStatusBadge: {
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: 4,
+    },
+    payslipStatusText: {
+      fontSize: 10,
+      fontWeight: '500',
     },
     payslipPeriod: {
       fontSize: 12,
       color: isDark ? '#9CA3AF' : '#6B7280',
-      marginTop: 2,
+      marginBottom: 2,
+    },
+    payslipNetPay: {
+      fontSize: 12,
+      fontWeight: '500',
+      color: '#10B981',
+      marginBottom: 2,
+    },
+    pdfGenerated: {
+      fontSize: 10,
+      color: '#10B981',
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
     },
     payslipActions: {
       flexDirection: 'row',
       gap: 8,
     },
     payslipActionButton: {
-      padding: 6,
+      padding: 8,
+      backgroundColor: isDark ? '#374151' : '#F3F4F6',
+      borderRadius: 6,
+    },
+    disabledButton: {
+      opacity: 0.5,
     },
     viewAllButton: {
       flexDirection: 'row',
@@ -874,6 +1310,92 @@ function createStyles(theme: string) {
       marginTop: 8,
       textAlign: 'center',
       paddingHorizontal: 40,
+    },
+    // Modal Styles
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 20,
+    },
+    modalContainer: {
+      backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
+      borderRadius: 16,
+      width: '100%',
+      maxWidth: 400,
+      maxHeight: '80%',
+      overflow: 'hidden',
+    },
+    modalHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      padding: 20,
+      borderBottomWidth: 1,
+      borderBottomColor: isDark ? '#374151' : '#E5E7EB',
+    },
+    modalTitle: {
+      fontSize: 18,
+      fontWeight: '600',
+      color: isDark ? '#F9FAFB' : '#111827',
+    },
+    modalCloseButton: {
+      padding: 8,
+    },
+    modalCloseText: {
+      fontSize: 18,
+      color: isDark ? '#9CA3AF' : '#6B7280',
+      fontWeight: 'bold',
+    },
+    modalContent: {
+      padding: 20,
+    },
+    modalText: {
+      fontSize: 16,
+      color: isDark ? '#9CA3AF' : '#6B7280',
+      marginBottom: 20,
+      textAlign: 'center',
+    },
+    pdfButtonsContainer: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      gap: 12,
+      marginBottom: 20,
+    },
+    pdfButton: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: '#2563EB',
+      borderRadius: 10,
+      padding: 16,
+      gap: 8,
+    },
+    downloadButton: {
+      backgroundColor: '#10B981',
+    },
+    pdfButtonText: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: '#FFFFFF',
+    },
+    pdfUrlContainer: {
+      backgroundColor: isDark ? '#374151' : '#F3F4F6',
+      borderRadius: 8,
+      padding: 12,
+    },
+    pdfUrlLabel: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: isDark ? '#9CA3AF' : '#6B7280',
+      marginBottom: 4,
+    },
+    pdfUrl: {
+      fontSize: 10,
+      color: isDark ? '#D1D5DB' : '#4B5563',
+      fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     },
   });
 }

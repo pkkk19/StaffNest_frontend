@@ -18,21 +18,18 @@ import {
   Trash2,
   Calendar,
   PoundSterling,
-  User,
-  Building,
   Clock,
-  Search,
-  Filter,
-  Check,
   X,
   ChevronRight,
   Info,
+  Building,
+  User,
 } from 'lucide-react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { router, useLocalSearchParams } from 'expo-router';
 import ForceTouchable from '@/components/ForceTouchable';
-import { payslipAPI, staffAPI, rotaAPI, shiftsAPI } from '@/services/api';
+import { payslipAPI, staffAPI, shiftsAPI } from '@/services/api';
 import DateTimePicker from '@react-native-community/datetimepicker';
 
 type StaffMember = {
@@ -132,14 +129,11 @@ export default function EditPayslip() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState<'start' | 'end' | 'pay' | null>(null);
-  const [staffList, setStaffList] = useState<StaffMember[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [showStaffPicker, setShowStaffPicker] = useState(false);
   const [showOvertimeSettings, setShowOvertimeSettings] = useState(false);
   const [shiftsLoading, setShiftsLoading] = useState(false);
   
   const [form, setForm] = useState<PayslipForm>({
-    employee_id: '',
+    employee_id: params.employeeId || '',
     staff_member: null,
     pay_period_start: new Date().toISOString().split('T')[0],
     pay_period_end: new Date().toISOString().split('T')[0],
@@ -160,50 +154,59 @@ export default function EditPayslip() {
   const styles = createStyles(theme);
 
   useEffect(() => {
-  loadStaffList();
-}, []);
+    if (params.id && params.id !== 'new') {
+      loadPayslip();
+    } else {
+      // For new payslips, load employee data if employeeId is provided
+      if (params.employeeId) {
+        loadEmployeeData(params.employeeId);
+      } else {
+        setLoading(false);
+      }
+    }
+  }, [params.id, params.employeeId]);
 
-// Add this function to load staff list
-const loadStaffList = async () => {
+  const loadEmployeeData = async (employeeId: string | { _id: string } | any) => {
   try {
-    const response = await staffAPI.getStaff();
-    setStaffList(response.data || []);
+    // Extract ID if it's an object
+    let id: string;
+    
+    if (typeof employeeId === 'string') {
+      id = employeeId;
+    } else if (employeeId && typeof employeeId === 'object' && employeeId._id) {
+      id = employeeId._id;
+      // If we already have the full employee object, use it
+      setForm(prev => ({
+        ...prev,
+        staff_member: employeeId,
+        employee_id: employeeId._id,
+      }));
+      setLoading(false);
+      return;
+    } else {
+      console.error('Invalid employee ID format:', employeeId);
+      Alert.alert('Error', 'Invalid employee ID format');
+      setLoading(false);
+      return;
+    }
+    
+    const response = await staffAPI.getStaffMember(id);
+    if (response.data) {
+      setForm(prev => ({
+        ...prev,
+        staff_member: response.data,
+        employee_id: id,
+      }));
+    }
   } catch (error) {
-    console.error('Failed to load staff list:', error);
-    Alert.alert('Error', 'Failed to load staff list');
+    console.error('Failed to load employee data:', error);
+    Alert.alert('Error', 'Failed to load employee information');
+  } finally {
+    setLoading(false);
   }
 };
 
   useEffect(() => {
-    // If we're editing an existing payslip
-    if (params.id && params.id !== 'new') {
-      loadPayslip();
-    } else {
-      // If we're creating a new payslip, check for employeeId parameter
-      if (params.employeeId) {
-        // Find and set the pre-selected employee from staffList if available
-        if (staffList.length > 0) {
-          const selectedEmployee = staffList.find(emp => emp._id === params.employeeId);
-          if (selectedEmployee) {
-            setForm(prev => ({
-              ...prev,
-              staff_member: selectedEmployee,
-              employee_id: params.employeeId!,
-            }));
-          } else {
-            // If not found in staffList, fetch it individually
-            loadPreSelectedEmployee(params.employeeId);
-          }
-        } else {
-          // Staff list not loaded yet, fetch individual employee
-          loadPreSelectedEmployee(params.employeeId);
-        }
-      }
-      setLoading(false);
-    }
-  }, [params.id, params.employeeId, staffList]);
-
-   useEffect(() => {
     if (form.staff_member && form.staff_member.deduction_types) {
       const staffDeductions: Deduction[] = form.staff_member.deduction_types.map(deduction => ({
         name: deduction.name,
@@ -229,34 +232,36 @@ const loadStaffList = async () => {
     }
   }, [form.staff_member]);
 
-  const loadPreSelectedEmployee = async (employeeId: string) => {
-    try {
-      const response = await staffAPI.getStaffMember(employeeId);
-      if (response.data) {
-        setForm(prev => ({
-          ...prev,
-          staff_member: response.data,
-          employee_id: employeeId,
-        }));
-      }
-    } catch (error) {
-      console.error('Failed to load pre-selected employee:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-const loadPayslip = async () => {
+ const loadPayslip = async () => {
   try {
     const response = await payslipAPI.getPayslip(params.id as string);
     const data = response.data;
     
-    if (data.staff_member) {
+    // Extract employee ID from either data.employee_id or data.staff_member
+    let employeeId: string;
+    
+    if (typeof data.employee_id === 'string') {
+      employeeId = data.employee_id;
+    } else if (data.employee_id && typeof data.employee_id === 'object' && data.employee_id._id) {
+      employeeId = data.employee_id._id; // Extract ID from object
+      // Also set the staff_member directly since we have the data
+      data.staff_member = data.employee_id;
+    } else if (data.staff_member?._id) {
+      employeeId = data.staff_member._id;
+    } else {
+      console.error('No valid employee ID found in payslip data');
+      Alert.alert('Error', 'Invalid employee data in payslip');
+      setLoading(false);
+      return;
+    }
+    
+    // Load employee data if not already present
+    if (!data.staff_member) {
       try {
-        const staffResponse = await staffAPI.getStaffMember(data.staff_member._id);
+        const staffResponse = await staffAPI.getStaffMember(employeeId);
         data.staff_member = staffResponse.data;
       } catch (error) {
-        console.error('Failed to fetch latest staff data:', error);
+        console.error('Failed to fetch employee data:', error);
       }
     }
     
@@ -292,7 +297,7 @@ const loadPayslip = async () => {
     const uniqueDeductions = Array.from(deductionMap.values());
 
     setForm({
-      employee_id: data.employee_id || data.staff_member?._id || '',
+      employee_id: employeeId,
       staff_member: data.staff_member || null,
       pay_period_start: data.pay_period_start?.split('T')[0] || new Date().toISOString().split('T')[0],
       pay_period_end: data.pay_period_end?.split('T')[0] || new Date().toISOString().split('T')[0],
@@ -318,312 +323,278 @@ const loadPayslip = async () => {
   }
 };
 
-const fetchShiftsForPeriod = async () => {
-  if (!form.staff_member || !form.pay_period_start || !form.pay_period_end) {
-    Alert.alert('Error', 'Please select employee and pay period first');
-    return;
-  }
-
-  setShiftsLoading(true);
-  try {
-    const startDate = new Date(form.pay_period_start);
-    startDate.setHours(0, 0, 0, 0);
-    
-    const endDate = new Date(form.pay_period_end);
-    endDate.setHours(23, 59, 59, 999);
-    
-    console.log('Fetching shifts for:', {
-      startDate: startDate.toISOString(),
-      endDate: endDate.toISOString(),
-      employeeId: form.staff_member._id,
-      employeeName: `${form.staff_member.first_name} ${form.staff_member.last_name}`
-    });
-    
-    // Try multiple approaches to fetch shifts
-    let shifts = [];
-    
-    try {
-      // First, try fetching all completed shifts in the period
-      const response = await shiftsAPI.getShifts({
-        start_date: startDate.toISOString(),
-        end_date: endDate.toISOString(),
-        status: 'completed'
-      });
-      
-      shifts = response.data || [];
-      console.log(`API returned ${shifts.length} completed shifts`);
-      
-    } catch (apiError) {
-      console.warn('Could not fetch with status filter, trying without:', apiError);
-      
-      // If that fails, try without status filter
-      const response = await shiftsAPI.getShifts({
-        start_date: startDate.toISOString(),
-        end_date: endDate.toISOString()
-      });
-      
-      shifts = response.data || [];
-      console.log(`API returned ${shifts.length} shifts (without status filter)`);
+  const fetchShiftsForPeriod = async () => {
+    if (!form.staff_member || !form.pay_period_start || !form.pay_period_end) {
+      Alert.alert('Error', 'Employee information is required to fetch shifts');
+      return;
     }
+
+    setShiftsLoading(true);
+    try {
+      const startDate = new Date(form.pay_period_start);
+      startDate.setHours(0, 0, 0, 0);
+      
+      const endDate = new Date(form.pay_period_end);
+      endDate.setHours(23, 59, 59, 999);
+      
+      console.log('Fetching shifts for:', {
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString(),
+        employeeId: form.staff_member._id,
+        employeeName: `${form.staff_member.first_name} ${form.staff_member.last_name}`
+      });
+      
+      // Try multiple approaches to fetch shifts
+      let shifts = [];
+      
+      try {
+        // First, try fetching all completed shifts in the period
+        const response = await shiftsAPI.getShifts({
+          start_date: startDate.toISOString(),
+          end_date: endDate.toISOString(),
+          status: 'completed'
+        });
+        
+        shifts = response.data || [];
+        console.log(`API returned ${shifts.length} completed shifts`);
+        
+      } catch (apiError) {
+        console.warn('Could not fetch with status filter, trying without:', apiError);
+        
+        // If that fails, try without status filter
+        const response = await shiftsAPI.getShifts({
+          start_date: startDate.toISOString(),
+          end_date: endDate.toISOString()
+        });
+        
+        shifts = response.data || [];
+        console.log(`API returned ${shifts.length} shifts (without status filter)`);
+      }
+      
+      // Filter by employee ID - handle different possible user_id structures
+      const employeeId = form.staff_member._id;
+      const filteredShifts = shifts.filter((shift: any) => {
+        if (!shift.user_id) return false;
+        
+        // Case 1: user_id is a string that matches employeeId
+        if (typeof shift.user_id === 'string') {
+          return shift.user_id === employeeId;
+        }
+        
+        // Case 2: user_id is an object with _id property
+        if (shift.user_id && typeof shift.user_id === 'object' && shift.user_id._id) {
+          return shift.user_id._id === employeeId;
+        }
+        
+        // Case 3: user_id is an object with $oid (MongoDB ObjectId)
+        if (shift.user_id && shift.user_id.$oid) {
+          return shift.user_id.$oid === employeeId;
+        }
+        
+        return false;
+      });
+      
+      console.log(`Filtered to ${filteredShifts.length} shifts for employee`);
+      
+      // Also filter by completed status if not already done
+      const completedShifts = filteredShifts.filter((shift: any) => 
+        shift.status === 'completed' || shift.status === 'approved'
+      );
+      
+      // Calculate hours for each shift
+      const shiftsWithHours = completedShifts.map((shift: any) => {
+        // Determine hours worked
+        let hoursWorked = 0;
+        
+        // Priority 1: Use actual clock in/out times
+        if (shift.clock_in_time && shift.clock_out_time) {
+          const start = new Date(shift.clock_in_time);
+          const end = new Date(shift.clock_out_time);
+          hoursWorked = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
+        }
+        // Priority 2: Use scheduled times
+        else if (shift.start_time && shift.end_time) {
+          const start = new Date(shift.start_time);
+          const end = new Date(shift.end_time);
+          hoursWorked = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
+        }
+        
+        // Calculate overtime (convert minutes to hours)
+        const overtimeMinutes = shift.overtime_minutes || 0;
+        const overtimeHours = overtimeMinutes / 60;
+        
+        return {
+          ...shift,
+          hours_worked: parseFloat(hoursWorked.toFixed(2)),
+          overtime_hours: parseFloat(overtimeHours.toFixed(2)),
+          total_hours: parseFloat((hoursWorked + overtimeHours).toFixed(2)),
+          date: shift.start_time ? new Date(shift.start_time).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+        };
+      });
+      
+      // Sort by date (most recent first)
+      shiftsWithHours.sort((a: any, b: any) => 
+        new Date(b.date).getTime() - new Date(a.date).getTime()
+      );
+
+      setForm(prev => ({
+        ...prev,
+        shifts: shiftsWithHours,
+      }));
+
+      // Auto-calculate earnings if we have shifts
+      if (shiftsWithHours.length > 0) {
+        calculateEarningsFromShifts(shiftsWithHours);
+        Alert.alert('Success', `Found ${shiftsWithHours.length} completed shifts for ${form.staff_member.first_name} in the selected period.`);
+      } else {
+        Alert.alert(
+          'No Shifts Found', 
+          `No completed shifts found for ${form.staff_member.first_name} ${form.staff_member.last_name} between ${form.pay_period_start} and ${form.pay_period_end}.`
+        );
+      }
+      
+    } catch (error) {
+      console.error('Failed to fetch shifts:', error);
+      Alert.alert(
+        'Error', 
+        'Failed to fetch shifts. Please check:\n1. Your internet connection\n2. Server status\n3. API endpoint availability'
+      );
+    } finally {
+      setShiftsLoading(false);
+    }
+  };
+
+  const calculateEarningsFromShifts = (shifts: any[]) => {
+    if (!form.staff_member) return;
+
+    const hourlyRate = form.staff_member.pay_rates?.default_hourly_rate || 0;
+    const { overtime_threshold, overtime_rate_multiplier } = form.overtime_settings;
     
-    // Debug: Log what we found
-    console.log('All shifts found:', shifts.map((s: any) => ({
-      id: s._id,
-      title: s.title,
-      user_id: s.user_id,
-      start_time: s.start_time,
-      status: s.status
-    })));
-    
-    // Filter by employee ID - handle different possible user_id structures
-    const employeeId = form.staff_member._id;
-    const filteredShifts = shifts.filter((shift: any) => {
-      if (!shift.user_id) return false;
+    let totalHours = 0;
+    let overtimeHours = 0;
+    const earnings: Earning[] = [];
+
+    // Calculate earnings for each shift
+    shifts.forEach((shift: any) => {
+      const hours = shift.hours_worked || 0;
+      const shiftOvertimeHours = shift.overtime_hours || 0;
+      totalHours += hours;
       
-      // Case 1: user_id is a string that matches employeeId
-      if (typeof shift.user_id === 'string') {
-        return shift.user_id === employeeId;
+      let regularHours = hours - shiftOvertimeHours;
+      
+      // Check if shift has pre-calculated overtime
+      if (shiftOvertimeHours > 0) {
+        overtimeHours += shiftOvertimeHours;
+        regularHours = hours - shiftOvertimeHours;
+      } 
+      // Otherwise calculate overtime based on threshold
+      else if (hours > overtime_threshold) {
+        regularHours = overtime_threshold;
+        const calculatedOvertimeHours = hours - overtime_threshold;
+        
+        // Apply max overtime limit
+        const actualOvertimeHours = Math.min(calculatedOvertimeHours, form.overtime_settings.max_overtime_hours);
+        overtimeHours += actualOvertimeHours;
+        regularHours = hours - actualOvertimeHours;
       }
       
-      // Case 2: user_id is an object with _id property
-      if (shift.user_id && typeof shift.user_id === 'object' && shift.user_id._id) {
-        return shift.user_id._id === employeeId;
-      }
+      // Regular hours earnings
+      const regularAmount = regularHours * hourlyRate;
+      earnings.push({
+        name: `Regular Hours - ${shift.date || 'Shift'}`,
+        amount: parseFloat(regularAmount.toFixed(2)),
+        type: 'regular',
+        shift_id: shift._id,
+        hours: parseFloat(regularHours.toFixed(2)),
+        rate: hourlyRate,
+        code: 'REG',
+        is_taxable: true,
+        is_ni_eligible: true,
+      });
       
-      // Case 3: user_id is an object with $oid (MongoDB ObjectId)
-      if (shift.user_id && shift.user_id.$oid) {
-        return shift.user_id.$oid === employeeId;
+      // Overtime hours earnings (if any)
+      const shiftTotalOvertime = shiftOvertimeHours || (hours - overtime_threshold > 0 ? hours - overtime_threshold : 0);
+      if (shiftTotalOvertime > 0) {
+        const actualOvertime = Math.min(shiftTotalOvertime, form.overtime_settings.max_overtime_hours);
+        const overtimeRate = hourlyRate * overtime_rate_multiplier;
+        const overtimeAmount = actualOvertime * overtimeRate;
+        earnings.push({
+          name: `Overtime Hours - ${shift.date || 'Shift'}`,
+          amount: parseFloat(overtimeAmount.toFixed(2)),
+          type: 'overtime',
+          shift_id: shift._id,
+          hours: parseFloat(actualOvertime.toFixed(2)),
+          rate: overtimeRate,
+          code: 'OT',
+          is_taxable: true,
+          is_ni_eligible: true,
+        });
       }
-      
-      return false;
     });
+
+    // Calculate total gross pay for deduction calculations
+    const totalGrossPay = earnings.reduce((sum, earning) => sum + earning.amount, 0);
+
+    // Create a map to track unique deductions by code
+    const deductionMap = new Map<string, Deduction>();
     
-    console.log(`Filtered to ${filteredShifts.length} shifts for employee`);
-    
-    // Also filter by completed status if not already done
-    const completedShifts = filteredShifts.filter((shift: any) => 
-      shift.status === 'completed' || shift.status === 'approved'
-    );
-    
-    // Calculate hours for each shift
-    const shiftsWithHours = completedShifts.map((shift: any) => {
-      // Determine hours worked
-      let hoursWorked = 0;
+    // Add staff member's default deductions
+    if (form.staff_member.deduction_types) {
+      form.staff_member.deduction_types.forEach(deductionType => {
+        if (deductionType.code && !deductionMap.has(deductionType.code)) {
+          let calculatedAmount = deductionType.default_amount || 0;
+          
+          // If it's percentage-based, calculate from total gross pay
+          if (deductionType.calculation_type === 'percentage' && deductionType.default_amount) {
+            calculatedAmount = (totalGrossPay * deductionType.default_amount) / 100;
+          }
+          
+          deductionMap.set(deductionType.code, {
+            name: deductionType.name,
+            amount: parseFloat(calculatedAmount.toFixed(2)),
+            type: deductionType.type,
+            code: deductionType.code,
+            is_pre_tax: deductionType.is_pre_tax || false,
+            rate: deductionType.calculation_type === 'percentage' ? deductionType.default_amount : undefined,
+          });
+        }
+      });
+    }
+
+    // Add tax deduction if tax code exists - with proper calculation
+    if (form.staff_member.tax_info?.tax_code) {
+      // Use the actual calculation from your database structure
+      const taxFreeAllowance = 12570 / 12; // Monthly allowance
+      const taxableIncome = Math.max(0, totalGrossPay - taxFreeAllowance);
+      const estimatedTax = taxableIncome * 0.20; // 20% basic rate
       
-      // Priority 1: Use actual clock in/out times
-      if (shift.clock_in_time && shift.clock_out_time) {
-        const start = new Date(shift.clock_in_time);
-        const end = new Date(shift.clock_out_time);
-        hoursWorked = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
+      if (!deductionMap.has('TAX')) {
+        deductionMap.set('TAX', {
+          name: 'PAYE Tax',
+          amount: parseFloat(estimatedTax.toFixed(2)),
+          type: 'tax',
+          code: 'TAX',
+          is_pre_tax: true,
+        });
       }
-      // Priority 2: Use scheduled times
-      else if (shift.start_time && shift.end_time) {
-        const start = new Date(shift.start_time);
-        const end = new Date(shift.end_time);
-        hoursWorked = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
-      }
-      
-      // Calculate overtime (convert minutes to hours)
-      const overtimeMinutes = shift.overtime_minutes || 0;
-      const overtimeHours = overtimeMinutes / 60;
-      
-      return {
-        ...shift,
-        hours_worked: parseFloat(hoursWorked.toFixed(2)),
-        overtime_hours: parseFloat(overtimeHours.toFixed(2)),
-        total_hours: parseFloat((hoursWorked + overtimeHours).toFixed(2)),
-        date: shift.start_time ? new Date(shift.start_time).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-      };
-    });
-    
-    // Sort by date (most recent first)
-    shiftsWithHours.sort((a: any, b: any) => 
-      new Date(b.date).getTime() - new Date(a.date).getTime()
+    }
+
+    // Convert map back to array
+    const deductions = Array.from(deductionMap.values());
+
+    // Keep any existing bonus/allowance earnings
+    const existingBonusEarnings = form.earnings.filter(e => 
+      e.type === 'bonus' || e.type === 'allowance'
     );
 
     setForm(prev => ({
       ...prev,
-      shifts: shiftsWithHours,
+      earnings: [...existingBonusEarnings, ...earnings],
+      deductions,
+      total_hours: parseFloat(totalHours.toFixed(2)),
+      overtime_hours: parseFloat(overtimeHours.toFixed(2)),
     }));
-
-    // Auto-calculate earnings if we have shifts
-    if (shiftsWithHours.length > 0) {
-      calculateEarningsFromShifts(shiftsWithHours);
-      Alert.alert('Success', `Found ${shiftsWithHours.length} completed shifts for ${form.staff_member.first_name} in the selected period.`);
-    } else {
-      // Provide more detailed error message
-      Alert.alert(
-        'No Shifts Found', 
-        `No completed shifts found for ${form.staff_member.first_name} ${form.staff_member.last_name} between ${form.pay_period_start} and ${form.pay_period_end}.`
-      );
-    }
-    
-  } catch (error) {
-    console.error('Failed to fetch shifts:', error);
-    Alert.alert(
-      'Error', 
-      'Failed to fetch shifts. Please check:\n1. Your internet connection\n2. Server status\n3. API endpoint availability'
-    );
-  } finally {
-    setShiftsLoading(false);
-  }
-};
-
-const calculateEarningsFromShifts = (shifts: any[]) => {
-  if (!form.staff_member) return;
-
-  const hourlyRate = form.staff_member.pay_rates?.default_hourly_rate || 0;
-  const { overtime_threshold, overtime_rate_multiplier } = form.overtime_settings;
-  
-  let totalHours = 0;
-  let overtimeHours = 0;
-  const earnings: Earning[] = [];
-
-  // Calculate earnings for each shift
-  shifts.forEach((shift: any) => {
-    const hours = shift.hours_worked || 0;
-    const shiftOvertimeHours = shift.overtime_hours || 0;
-    totalHours += hours;
-    
-    let regularHours = hours - shiftOvertimeHours;
-    
-    // Check if shift has pre-calculated overtime
-    if (shiftOvertimeHours > 0) {
-      overtimeHours += shiftOvertimeHours;
-      regularHours = hours - shiftOvertimeHours;
-    } 
-    // Otherwise calculate overtime based on threshold
-    else if (hours > overtime_threshold) {
-      regularHours = overtime_threshold;
-      const calculatedOvertimeHours = hours - overtime_threshold;
-      
-      // Apply max overtime limit
-      const actualOvertimeHours = Math.min(calculatedOvertimeHours, form.overtime_settings.max_overtime_hours);
-      overtimeHours += actualOvertimeHours;
-      regularHours = hours - actualOvertimeHours;
-    }
-    
-    // Regular hours earnings
-    const regularAmount = regularHours * hourlyRate;
-    earnings.push({
-      name: `Regular Hours - ${shift.date || 'Shift'}`,
-      amount: parseFloat(regularAmount.toFixed(2)),
-      type: 'regular',
-      shift_id: shift._id,
-      hours: parseFloat(regularHours.toFixed(2)),
-      rate: hourlyRate,
-      code: 'REG',
-      is_taxable: true,
-      is_ni_eligible: true,
-    });
-    
-    // Overtime hours earnings (if any)
-    const shiftTotalOvertime = shiftOvertimeHours || (hours - overtime_threshold > 0 ? hours - overtime_threshold : 0);
-    if (shiftTotalOvertime > 0) {
-      const actualOvertime = Math.min(shiftTotalOvertime, form.overtime_settings.max_overtime_hours);
-      const overtimeRate = hourlyRate * overtime_rate_multiplier;
-      const overtimeAmount = actualOvertime * overtimeRate;
-      earnings.push({
-        name: `Overtime Hours - ${shift.date || 'Shift'}`,
-        amount: parseFloat(overtimeAmount.toFixed(2)),
-        type: 'overtime',
-        shift_id: shift._id,
-        hours: parseFloat(actualOvertime.toFixed(2)),
-        rate: overtimeRate,
-        code: 'OT',
-        is_taxable: true,
-        is_ni_eligible: true,
-      });
-    }
-  });
-
-  // Calculate total gross pay for deduction calculations
-  const totalGrossPay = earnings.reduce((sum, earning) => sum + earning.amount, 0);
-
-  // Create a map to track unique deductions by code
-  const deductionMap = new Map<string, Deduction>();
-  
-  // Add staff member's default deductions
-  if (form.staff_member.deduction_types) {
-    form.staff_member.deduction_types.forEach(deductionType => {
-      if (deductionType.code && !deductionMap.has(deductionType.code)) {
-        let calculatedAmount = deductionType.default_amount || 0;
-        
-        // If it's percentage-based, calculate from total gross pay
-        if (deductionType.calculation_type === 'percentage' && deductionType.default_amount) {
-          calculatedAmount = (totalGrossPay * deductionType.default_amount) / 100;
-        }
-        
-        deductionMap.set(deductionType.code, {
-          name: deductionType.name,
-          amount: parseFloat(calculatedAmount.toFixed(2)),
-          type: deductionType.type,
-          code: deductionType.code,
-          is_pre_tax: deductionType.is_pre_tax || false,
-          rate: deductionType.calculation_type === 'percentage' ? deductionType.default_amount : undefined,
-        });
-      }
-    });
-  }
-
-  // Add tax deduction if tax code exists - with proper calculation
-  if (form.staff_member.tax_info?.tax_code) {
-    // Use the actual calculation from your database structure
-    const taxFreeAllowance = 12570 / 12; // Monthly allowance
-    const taxableIncome = Math.max(0, totalGrossPay - taxFreeAllowance);
-    const estimatedTax = taxableIncome * 0.20; // 20% basic rate
-    
-    if (!deductionMap.has('TAX')) {
-      deductionMap.set('TAX', {
-        name: 'PAYE Tax',
-        amount: parseFloat(estimatedTax.toFixed(2)),
-        type: 'tax',
-        code: 'TAX',
-        is_pre_tax: true,
-      });
-    }
-  }
-
-  // Convert map back to array
-  const deductions = Array.from(deductionMap.values());
-
-  // Keep any existing bonus/allowance earnings
-  const existingBonusEarnings = form.earnings.filter(e => 
-    e.type === 'bonus' || e.type === 'allowance'
-  );
-
-  setForm(prev => ({
-    ...prev,
-    earnings: [...existingBonusEarnings, ...earnings],
-    deductions,
-    total_hours: parseFloat(totalHours.toFixed(2)),
-    overtime_hours: parseFloat(overtimeHours.toFixed(2)),
-  }));
-};
-
-  const handleStaffSelect = (staff: StaffMember) => {
-  setForm(prev => ({
-    ...prev,
-    staff_member: staff,
-    employee_id: staff._id,
-  }));
-  setShowStaffPicker(false);
-  
-  // Clear any existing data when staff changes
-  setForm(prev => ({
-    ...prev,
-    shifts: [],
-    earnings: [],
-    deductions: [],
-    total_hours: 0,
-    overtime_hours: 0,
-  }));
-  
-  // Make sure the staff is in the staffList
-  if (!staffList.find(s => s._id === staff._id)) {
-    setStaffList(prev => [...prev, staff]);
-  }
-};
+  };
 
   const handleDateChange = (event: any, selectedDate?: Date, type: 'start' | 'end' | 'pay' = 'start') => {
     setShowDatePicker(null);
@@ -638,12 +609,12 @@ const calculateEarningsFromShifts = (shifts: any[]) => {
     }
   };
 
-const addEarning = () => {
-  setForm(prev => ({
-    ...prev,
-    earnings: [{ name: '', amount: 0, type: 'bonus' }, ...prev.earnings],
-  }));
-};
+  const addEarning = () => {
+    setForm(prev => ({
+      ...prev,
+      earnings: [{ name: '', amount: 0, type: 'bonus' }, ...prev.earnings],
+    }));
+  };
 
   const addDeduction = () => {
     setForm(prev => ({
@@ -680,13 +651,13 @@ const addEarning = () => {
     setForm(prev => ({ ...prev, deductions: newDeductions }));
   };
 
-const calculateTotals = () => {
-  const totalEarnings = form.earnings.reduce((sum, item) => sum + item.amount, 0);
-  const totalDeductions = form.deductions.reduce((sum, item) => sum + item.amount, 0);
-  const netPay = totalEarnings - totalDeductions;
-  
-  return { totalEarnings, totalDeductions, netPay };
-};
+  const calculateTotals = () => {
+    const totalEarnings = form.earnings.reduce((sum, item) => sum + item.amount, 0);
+    const totalDeductions = form.deductions.reduce((sum, item) => sum + item.amount, 0);
+    const netPay = totalEarnings - totalDeductions;
+    
+    return { totalEarnings, totalDeductions, netPay };
+  };
 
   const handleStatusChange = (status: PayslipForm['status']) => {
     setForm(prev => ({ ...prev, status }));
@@ -708,7 +679,7 @@ const calculateTotals = () => {
   const handleSave = async () => {
     // Validate form
     if (!form.staff_member) {
-      Alert.alert('Error', 'Please select an employee');
+      Alert.alert('Error', 'Employee information is missing');
       return;
     }
 
@@ -728,65 +699,62 @@ const calculateTotals = () => {
     savePayslip();
   };
 
-const savePayslip = async () => {
-  setSaving(true);
-  try {
-    const { totalEarnings, totalDeductions, netPay } = calculateTotals();
-    
-    // Format data for the backend
-    const payload = {
-      employee_id: form.staff_member!._id,
-      pay_period_start: form.pay_period_start,
-      pay_period_end: form.pay_period_end,
-      pay_date: form.pay_date,
-      include_shifts: form.shifts.length > 0, // Include shifts if we have them
-      payments: form.earnings.map(earning => ({
-        type: earning.type || 'regular',
-        code: earning.code || earning.type?.toUpperCase() || 'BASIC',
-        description: earning.name,
-        units: earning.hours?.toString() || '0',
-        rate: earning.rate?.toString() || '0',
-        amount: earning.amount.toString(),
-        is_taxable: earning.is_taxable ?? true,
-        is_ni_eligible: earning.is_ni_eligible ?? true,
-        custom_field: {
-          shift_id: earning.shift_id,
-          hours: earning.hours
-        }
-      })),
-      deductions: form.deductions.map(deduction => ({
-        type: deduction.type || 'other',
-        code: deduction.code || deduction.type?.toUpperCase() || 'OTHER',
-        description: deduction.name,
-        amount: deduction.amount.toString(),
-        is_pre_tax: deduction.is_pre_tax || false,
-        rate: deduction.rate?.toString() || '0'
-      })),
-      total_hours: form.total_hours,
-      overtime_hours: form.overtime_hours,
-      notes: form.notes,
-      overtime_settings: form.overtime_settings
-    };
+  const savePayslip = async () => {
+    setSaving(true);
+    try {
+      const { totalEarnings, totalDeductions, netPay } = calculateTotals();
+      
+      // Format data for the backend
+      const payload = {
+        employee_id: form.staff_member!._id,
+        pay_period_start: form.pay_period_start,
+        pay_period_end: form.pay_period_end,
+        pay_date: form.pay_date,
+        include_shifts: form.shifts.length > 0,
+        payments: form.earnings.map(earning => ({
+          type: earning.type || 'regular',
+          code: earning.code || earning.type?.toUpperCase() || 'BASIC',
+          description: earning.name,
+          units: earning.hours?.toString() || '0',
+          rate: earning.rate?.toString() || '0',
+          amount: earning.amount.toString(),
+          is_taxable: earning.is_taxable ?? true,
+          is_ni_eligible: earning.is_ni_eligible ?? true,
+          custom_field: {
+            shift_id: earning.shift_id,
+            hours: earning.hours
+          }
+        })),
+        deductions: form.deductions.map(deduction => ({
+          type: deduction.type || 'other',
+          code: deduction.code || deduction.type?.toUpperCase() || 'OTHER',
+          description: deduction.name,
+          amount: deduction.amount.toString(),
+          is_pre_tax: deduction.is_pre_tax || false,
+          rate: deduction.rate?.toString() || '0'
+        })),
+        total_hours: form.total_hours,
+        overtime_hours: form.overtime_hours,
+        notes: form.notes,
+        overtime_settings: form.overtime_settings
+      };
 
-    console.log('Sending payslip data:', JSON.stringify(payload, null, 2));
-
-    if (params.id === 'new') {
-      await payslipAPI.createPayslip(payload);
-      Alert.alert('Success', 'Payslip created successfully');
-    } else {
-      await payslipAPI.updatePayslip(params.id as string, payload);
-      Alert.alert('Success', 'Payslip updated successfully');
+      if (params.id === 'new') {
+        await payslipAPI.createPayslip(payload);
+        Alert.alert('Success', 'Payslip created successfully');
+      } else {
+        await payslipAPI.updatePayslip(params.id as string, payload);
+        Alert.alert('Success', 'Payslip updated successfully');
+      }
+      
+      router.back();
+    } catch (error: any) {
+      console.error('Failed to save payslip:', error);
+      Alert.alert('Error', error.response?.data?.message || 'Failed to save payslip');
+    } finally {
+      setSaving(false);
     }
-    
-    router.back();
-  } catch (error: any) {
-    console.error('Failed to save payslip:', error);
-    console.error('Error response:', error.response?.data);
-    Alert.alert('Error', error.response?.data?.message || 'Failed to save payslip');
-  } finally {
-    setSaving(false);
-  }
-};
+  };
 
   const handleDelete = async () => {
     if (params.id === 'new') return;
@@ -820,26 +788,19 @@ const savePayslip = async () => {
     }
   };
 
- const getEmployeeDisplayId = () => {
-  const employeeRef = form.staff_member?.identification?.employee_ref;
-  const employeeId = form.staff_member?.employee_id;
-  
-  // Convert to string to ensure we're not rendering an object
-  if (employeeRef) return String(employeeRef);
-  if (employeeId) return String(employeeId);
-  return 'N/A';
-};
-
-  const getEmployeeFullName = () => {
-    if (!form.staff_member) return 'Select employee...';
-    return `${form.staff_member.first_name} ${form.staff_member.last_name}`;
+  const getEmployeeDisplayId = () => {
+    const employeeRef = form.staff_member?.identification?.employee_ref;
+    const employeeId = form.staff_member?.employee_id;
+    
+    if (employeeRef) return String(employeeRef);
+    if (employeeId) return String(employeeId);
+    return 'N/A';
   };
 
-  const filteredStaff = staffList.filter(staff =>
-    `${staff.first_name} ${staff.last_name}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    staff.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    staff.identification?.employee_ref?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const getEmployeeFullName = () => {
+    if (!form.staff_member) return 'Loading...';
+    return `${form.staff_member.first_name} ${form.staff_member.last_name}`;
+  };
 
   const { totalEarnings, totalDeductions, netPay } = calculateTotals();
 
@@ -880,27 +841,19 @@ const savePayslip = async () => {
                 style={styles.editStaffButton}
                 onPress={navigateToStaffDetails}
               >
-                <Text style={styles.editStaffButtonText}>Edit Staff Details</Text>
+                <Text style={styles.editStaffButtonText}>View Staff Details</Text>
                 <ChevronRight size={16} color="#2563EB" />
               </ForceTouchable>
             )}
           </View>
-          
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Select Employee *</Text>
-            <ForceTouchable 
-              style={styles.staffSelector}
-              onPress={() => setShowStaffPicker(true)}
-            >
-              <User size={16} color="#6B7280" />
-              <Text style={styles.staffSelectorText}>
-                {getEmployeeFullName()}
-              </Text>
-            </ForceTouchable>
-          </View>
 
-          {form.staff_member && (
+          {form.staff_member ? (
             <View style={styles.staffInfoCard}>
+              <View style={styles.staffNameRow}>
+                <User size={20} color="#6B7280" />
+                <Text style={styles.staffName}>{getEmployeeFullName()}</Text>
+              </View>
+              
               <View style={styles.staffInfoRow}>
                 <View style={styles.staffInfoItem}>
                   <Text style={styles.staffInfoLabel}>Employee ID</Text>
@@ -961,11 +914,15 @@ const savePayslip = async () => {
                 <View style={styles.missingInfoAlert}>
                   <Info size={16} color="#F59E0B" />
                   <Text style={styles.missingInfoText}>
-                    Some payroll information is missing. Edit staff details to add missing fields.
+                    Some payroll information is missing. View staff details to see missing fields.
                   </Text>
                 </View>
               )}
             </View>
+          ) : (
+            <Text style={styles.noEmployeeText}>
+              Employee information could not be loaded. Please check the employee ID.
+            </Text>
           )}
         </View>
 
@@ -1318,68 +1275,6 @@ const savePayslip = async () => {
         </View>
       </ScrollView>
 
-      {/* Staff Picker Modal */}
-      {showStaffPicker && (
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Select Employee</Text>
-              <ForceTouchable onPress={() => setShowStaffPicker(false)}>
-                <X size={24} color={theme === 'dark' ? '#F9FAFB' : '#374151'} />
-              </ForceTouchable>
-            </View>
-            
-            <View style={styles.searchContainer}>
-              <Search size={20} color="#6B7280" />
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search by name or ID..."
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                autoFocus
-                placeholderTextColor={theme === 'dark' ? '#6B7280' : '#9CA3AF'}
-              />
-            </View>
-            
-            <ScrollView style={styles.staffList}>
-              {filteredStaff.length === 0 ? (
-                <Text style={styles.emptyText}>No staff members found</Text>
-              ) : (
-                filteredStaff.map((staff) => (
-                  <ForceTouchable
-                    key={staff._id}
-                    style={styles.staffItem}
-                    onPress={() => handleStaffSelect(staff)}
-                  >
-                    <View style={styles.staffItemContent}>
-                      <View>
-                        <Text style={styles.staffName}>
-                          {staff.first_name} {staff.last_name}
-                        </Text>
-                        <Text style={styles.staffId}>
-                          ID: {staff.identification?.employee_ref || staff.employee_id || 'N/A'}
-                        </Text>
-                        <Text style={styles.staffPosition}>
-                          {staff.position || 'No position'} • {staff.department || 'No department'}
-                        </Text>
-                        {staff.pay_rates?.default_hourly_rate && (
-                          <Text style={styles.staffRate}>
-                            £{staff.pay_rates.default_hourly_rate.toFixed(2)}/hr
-                          </Text>
-                        )}
-                      </View>
-                      {form.staff_member?._id === staff._id && (
-                        <Check size={20} color="#10B981" />
-                      )}
-                    </View>
-                  </ForceTouchable>
-                ))
-              )}
-            </ScrollView>
-          </View>
-        </View>
-      )}
-
       {/* Overtime Settings Modal */}
       {showOvertimeSettings && (
         <Modal
@@ -1534,34 +1429,21 @@ function createStyles(theme: string) {
       color: '#2563EB',
       fontWeight: '500',
     },
-    inputGroup: {
-      marginBottom: 16,
-    },
-    label: {
-      fontSize: 14,
-      fontWeight: '500',
-      color: isDark ? '#D1D5DB' : '#4B5563',
-      marginBottom: 8,
-    },
-    staffSelector: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: isDark ? '#374151' : '#F3F4F6',
-      borderRadius: 8,
-      paddingHorizontal: 16,
-      paddingVertical: 12,
-      gap: 8,
-    },
-    staffSelectorText: {
-      flex: 1,
-      fontSize: 14,
-      color: isDark ? '#F9FAFB' : '#111827',
-    },
     staffInfoCard: {
       backgroundColor: isDark ? '#37415120' : '#F3F4F6',
       borderRadius: 8,
       padding: 16,
-      marginTop: 12,
+    },
+    staffNameRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginBottom: 16,
+    },
+    staffName: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: isDark ? '#F9FAFB' : '#111827',
     },
     staffInfoRow: {
       flexDirection: 'row',
@@ -1581,6 +1463,12 @@ function createStyles(theme: string) {
       color: isDark ? '#F9FAFB' : '#111827',
       fontWeight: '500',
     },
+    noEmployeeText: {
+      fontSize: 14,
+      color: '#EF4444',
+      textAlign: 'center',
+      paddingVertical: 20,
+    },
     missingInfoAlert: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -1594,6 +1482,15 @@ function createStyles(theme: string) {
       flex: 1,
       fontSize: 12,
       color: '#92400E',
+    },
+    inputGroup: {
+      marginBottom: 16,
+    },
+    label: {
+      fontSize: 14,
+      fontWeight: '500',
+      color: isDark ? '#D1D5DB' : '#4B5563',
+      marginBottom: 8,
     },
     dateRow: {
       flexDirection: 'row',
@@ -1886,18 +1783,15 @@ function createStyles(theme: string) {
       color: '#FFFFFF',
     },
     modalOverlay: {
-      position: 'absolute',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
+      flex: 1,
       backgroundColor: 'rgba(0, 0, 0, 0.5)',
-      justifyContent: 'flex-end',
+      justifyContent: 'center',
+      alignItems: 'center',
     },
     modalContent: {
       backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
-      borderTopLeftRadius: 20,
-      borderTopRightRadius: 20,
+      borderRadius: 16,
+      width: '90%',
       maxHeight: '80%',
     },
     modalHeader: {
@@ -1912,60 +1806,6 @@ function createStyles(theme: string) {
       fontSize: 18,
       fontWeight: '600',
       color: isDark ? '#F9FAFB' : '#111827',
-    },
-    searchContainer: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      paddingHorizontal: 20,
-      paddingVertical: 16,
-      borderBottomWidth: 1,
-      borderBottomColor: isDark ? '#374151' : '#E5E7EB',
-    },
-    searchInput: {
-      flex: 1,
-      marginLeft: 8,
-      fontSize: 14,
-      color: isDark ? '#F9FAFB' : '#111827',
-    },
-    staffList: {
-      maxHeight: 400,
-    },
-    staffItem: {
-      paddingHorizontal: 20,
-      paddingVertical: 12,
-      borderBottomWidth: 1,
-      borderBottomColor: isDark ? '#37415120' : '#E5E7EB20',
-    },
-    staffItemContent: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-    },
-    staffName: {
-      fontSize: 16,
-      fontWeight: '600',
-      color: isDark ? '#F9FAFB' : '#111827',
-      marginBottom: 2,
-    },
-    staffId: {
-      fontSize: 12,
-      color: isDark ? '#9CA3AF' : '#6B7280',
-      marginBottom: 2,
-    },
-    staffPosition: {
-      fontSize: 12,
-      color: isDark ? '#6B7280' : '#9CA3AF',
-      marginBottom: 2,
-    },
-    staffRate: {
-      fontSize: 12,
-      color: '#10B981',
-      fontWeight: '500',
-    },
-    emptyText: {
-      textAlign: 'center',
-      padding: 20,
-      color: isDark ? '#9CA3AF' : '#6B7280',
     },
     settingsContent: {
       padding: 20,

@@ -1,5 +1,6 @@
-import { View, Text, ScrollView, StyleSheet, Platform, ActivityIndicator, Image, StatusBar } from 'react-native';
-import { Bell, Calendar, Clock, FileText, Users, MessageSquare } from 'lucide-react-native';
+// app/dashboard.tsx
+import { View, Text, ScrollView, StyleSheet, Platform, ActivityIndicator, Image, StatusBar, TouchableOpacity } from 'react-native';
+import { Bell, Calendar, Clock, FileText, Users, MessageSquare, Mail, User } from 'lucide-react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -8,6 +9,8 @@ import { DashboardCard } from '@/components/DashboardCard';
 import ForceTouchable from '@/components/ForceTouchable';
 import { useState, useEffect } from 'react';
 import { shiftsAPI, companiesAPI } from '@/services/api';
+import AISearchBar from '@/components/AI/AISearchBar';
+import StoriesCarousel from '@/components/Stories/StoriesCarousel';
 
 // Define the Company type based on your API response
 type Company = {
@@ -113,11 +116,11 @@ export default function Dashboard() {
     { icon: Calendar, title: t('viewRota'), color: '#2563EB', route: '/rota' },
     { icon: Clock, title: t('clockIn'), color: '#10B981', route: '/time' },
     { 
-    icon: FileText, 
-    title: t('payslips'), 
-    color: '#F59E0B', 
-    route: user?.role === 'admin' ? 'pages/admin/payslips' : 'pages/payslips'
-  },
+      icon: FileText, 
+      title: t('payslips'), 
+      color: '#F59E0B', 
+      route: user?.role === 'admin' ? '/pages/admin/payslips' : '/pages/payslips'
+    },
     ...(user?.role === 'admin' ? [
       { icon: Users, title: t('manageStaff'), color: '#8B5CF6', route: '/staff' },
       { icon: Bell, title: t('sendNotifications'), color: '#EF4444', route: '/notifications' }
@@ -174,29 +177,27 @@ export default function Dashboard() {
               )}
             </View>
           </View>
-          <ForceTouchable
-            style={styles.bellIcon}
-            onPress={() => router.push('/notifications')}
-          >
-            <Bell size={24} color={theme === 'dark' ? '#F9FAFB' : '#374151'} />
-          </ForceTouchable>
+          <View style={styles.headerActions}>
+            {/* Profile Icon */}
+            <TouchableOpacity
+              style={styles.headerIcon}
+              onPress={() => router.push('/pages/edit-profile')}
+            >
+              <User size={24} color={theme === 'dark' ? '#F9FAFB' : '#374151'} />
+            </TouchableOpacity>
+            
+            {/* Envelope Icon (for notifications) */}
+            <TouchableOpacity
+              style={styles.headerIcon}
+              onPress={() => router.push('/notifications')}
+            >
+              <Mail size={24} color={theme === 'dark' ? '#F9FAFB' : '#374151'} />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Stats section moved up to replace greeting section */}
-        <View style={styles.statsContainer}>
-          <DashboardCard 
-            title={t('hoursThisWeek')} 
-            value={stats.hoursThisWeek.toString()} 
-            subtitle={t('hours')} 
-            color="#2563EB" 
-          />
-          <DashboardCard 
-            title={t('holidaysLeft')} 
-            value={stats.holidaysLeft.toString()} 
-            subtitle={t('days')} 
-            color="#10B981" 
-          />
-        </View>
+        <StoriesCarousel />
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t('quickActions')}</Text>
@@ -212,6 +213,12 @@ export default function Dashboard() {
               </ForceTouchable>
             ))}
           </View>
+        </View>
+
+        <View style={styles.section}>
+          <AISearchBar 
+            placeholder="What's on your mind today?"
+          />
         </View>
 
         <View style={styles.section}>
@@ -271,22 +278,30 @@ function createStyles(theme: string) {
       flex: 1,
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 16, // Increased gap for better spacing
+      gap: 16,
+    },
+    headerActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 16,
+    },
+    headerIcon: {
+      padding: 8,
     },
     companyLogo: {
-      width: 48, // Increased size
-      height: 48, // Increased size
-      borderRadius: 10, // Slightly larger border radius
+      width: 48,
+      height: 48,
+      borderRadius: 10,
     },
     companyLogoPlaceholder: {
-      width: 48, // Increased size
-      height: 48, // Increased size
-      borderRadius: 10, // Slightly larger border radius
+      width: 48,
+      height: 48,
+      borderRadius: 10,
       justifyContent: 'center',
       alignItems: 'center',
     },
     companyLogoText: {
-      fontSize: 20, // Larger font for logo placeholder
+      fontSize: 20,
       fontWeight: 'bold',
       color: isDark ? '#9CA3AF' : '#6B7280',
     },
@@ -295,21 +310,16 @@ function createStyles(theme: string) {
       justifyContent: 'center',
     },
     companyName: {
-      fontSize: 22, // Much larger font size
-      fontWeight: '700', // Bolder font weight
+      fontSize: 22,
+      fontWeight: '700',
       color: isDark ? '#F9FAFB' : '#111827',
-      letterSpacing: 0.5, // Slight letter spacing for better readability
+      letterSpacing: 0.5,
     },
     companyNameError: {
       fontSize: 14,
       fontWeight: '400',
       color: isDark ? '#EF4444' : '#DC2626',
       fontStyle: 'italic',
-    },
-    // Removed userGreeting, greeting, userName styles
-    // Removed roleBadge and roleBadgeText styles
-    bellIcon: {
-      padding: 8,
     },
     statsContainer: {
       flexDirection: 'row',

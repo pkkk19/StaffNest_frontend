@@ -1,5 +1,13 @@
+// app/_layout.tsx (TabLayout)
 import { Tabs } from 'expo-router';
-import { Chrome as Home, Calendar, Clock, Users, MessageSquare, Settings } from 'lucide-react-native';
+import { 
+  Home as HomeIcon, 
+  Calendar, 
+  MessageSquare, 
+  Users, 
+  MoreVertical, 
+  Clock
+} from 'lucide-react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
@@ -8,13 +16,20 @@ export default function TabLayout() {
   const { theme } = useTheme();
   const { user } = useAuth();
 
+  // Keep navbar white/light for both themes
   const colors = theme === 'dark' 
-    ? { background: '#1F2937', text: '#F9FAFB', inactive: '#6B7280' }
-    : theme === 'colorblind'
-    ? { background: '#FFFFFF', text: '#374151', inactive: '#9CA3AF' }
-    : { background: '#FFFFFF', text: '#374151', inactive: '#9CA3AF' };
+    ? { 
+        background: '#FFFFFF', // White background for navbar
+        text: '#374151', // Dark grey for text
+        inactive: '#9CA3AF' // Light grey for inactive
+      }
+    : { 
+        background: '#FFFFFF', // White background for navbar
+        text: '#374151', // Dark grey for text
+        inactive: '#9CA3AF' // Light grey for inactive
+      };
 
-  // Different tab layouts for staff vs manager
+  // Staff layout
   if (user?.role === 'staff') {
     return (
       <ProtectedRoute>
@@ -24,7 +39,7 @@ export default function TabLayout() {
             tabBarStyle: {
               backgroundColor: colors.background,
               borderTopWidth: 1,
-              borderTopColor: theme === 'dark' ? '#374151' : '#E5E7EB',
+              borderTopColor: '#E5E7EB', // Light grey border
               height: 80,
               paddingBottom: 8,
               paddingTop: 8,
@@ -33,85 +48,65 @@ export default function TabLayout() {
               fontSize: 12,
               fontWeight: '500',
               marginTop: 4,
+              color: '#000000', // Black text for labels
             },
-            tabBarActiveTintColor: '#2563EB',
-            tabBarInactiveTintColor: colors.inactive,
+            tabBarActiveTintColor: '#2563EB', // Blue for active icon
+            tabBarInactiveTintColor: '#000000', // Black for inactive icons
           }}>
           <Tabs.Screen
             name="index"
             options={{
-              title: 'Dashboard',
-              tabBarIcon: ({ size, color }) => (
-                <Home size={size} color={color} />
-              ),
-            }}
-          />
-          {/* Rota tab group */}
-          <Tabs.Screen
-            name="rota"
-            options={{
-              title: 'My Rota',
-              tabBarIcon: ({ size, color }) => (
-                <Calendar size={size} color={color} />
+              title: 'Home',
+              tabBarIcon: ({ size, color, focused }) => (
+                <HomeIcon size={size} color={focused ? '#2563EB' : '#000000'} />
               ),
             }}
           />
           <Tabs.Screen
             name="time"
             options={{
-              title: 'Time',
-              tabBarIcon: ({ size, color }) => (
-                <Clock size={size} color={color} />
+              title: 'Clock In',
+              tabBarIcon: ({ size, color, focused }) => (
+                <Clock size={size} color={focused ? '#2563EB' : '#000000'} />
               ),
             }}
           />
           <Tabs.Screen
             name="chat"
             options={{
-              title: 'Chat',
-              tabBarIcon: ({ size, color }) => (
-                <MessageSquare size={size} color={color} />
+              title: 'Messenger',
+              tabBarIcon: ({ size, color, focused }) => (
+                <MessageSquare size={size} color={focused ? '#2563EB' : '#000000'} />
               ),
             }}
           />
           <Tabs.Screen
-            name="settings"
+            name="more"
             options={{
-              title: 'Settings',
-              tabBarIcon: ({ size, color }) => (
-                <Settings size={size} color={color} />
+              title: 'More',
+              tabBarIcon: ({ size, color, focused }) => (
+                <MoreVertical size={size} color={focused ? '#2563EB' : '#000000'} />
               ),
             }}
           />
           
-          {/* Hide nested rota screens from main tab bar */}
+          {/* Hidden tabs */}
           <Tabs.Screen
-          name="staff"
-          options={{
-            title: 'Manage Staff',
-            href: null,
-            tabBarIcon: ({ size, color }) => (
-              <Users size={size} color={color} />
-            ),
-          }}
-        />
-
-          <Tabs.Screen
-            name="rota/my-shifts"
+            name="settings"
             options={{
-              href: null, // Hide from tab bar
+              href: null,
             }}
           />
           <Tabs.Screen
-            name="rota/open-shifts"
+            name="rota"
             options={{
-              href: null, // Hide from tab bar
+              href: null,
             }}
           />
           <Tabs.Screen
-            name="rota/shift-requests"
+            name="staff"
             options={{
-              href: null, // Hide from tab bar
+              href: null,
             }}
           />
         </Tabs>
@@ -119,7 +114,7 @@ export default function TabLayout() {
     );
   }
 
-  // Manager layout with all tabs
+  // Admin/Manager layout
   return (
     <ProtectedRoute>
       <Tabs
@@ -128,7 +123,7 @@ export default function TabLayout() {
           tabBarStyle: {
             backgroundColor: colors.background,
             borderTopWidth: 1,
-            borderTopColor: theme === 'dark' ? '#374151' : '#E5E7EB',
+            borderTopColor: '#E5E7EB',
             height: 80,
             paddingBottom: 8,
             paddingTop: 8,
@@ -137,83 +132,96 @@ export default function TabLayout() {
             fontSize: 12,
             fontWeight: '500',
             marginTop: 4,
+            color: '#000000', // Black text for labels
           },
-          tabBarActiveTintColor: '#2563EB',
-          tabBarInactiveTintColor: colors.inactive,
+          tabBarActiveTintColor: '#2563EB', // Blue for active icon
+          tabBarInactiveTintColor: '#000000', // Black for inactive icons
         }}>
+        
+        {/* Tab 1: Home */}
         <Tabs.Screen
           name="index"
           options={{
-            title: 'Dashboard',
-            tabBarIcon: ({ size, color }) => (
-              <Home size={size} color={color} />
-            ),
-          }}
-        />
-        {/* Rota tab group */}
-        <Tabs.Screen
-          name="rota"
-          options={{
-            title: 'Rota',
-            tabBarIcon: ({ size, color }) => (
-              <Calendar size={size} color={color} />
-            ),
-          }}
-        />
-        <Tabs.Screen
-          name="time"
-          options={{
-            title: 'Time',
-            tabBarIcon: ({ size, color }) => (
-              <Clock size={size} color={color} />
-            ),
-          }}
-        />
-        <Tabs.Screen
-          name="staff"
-          options={{
-            title: 'Manage Staff',
-            tabBarIcon: ({ size, color }) => (
-              <Users size={size} color={color} />
-            ),
-          }}
-        />
-        <Tabs.Screen
-          name="chat"
-          options={{
-            title: 'Chat',
-            tabBarIcon: ({ size, color }) => (
-              <MessageSquare size={size} color={color} />
-            ),
-          }}
-        />
-        <Tabs.Screen
-          name="settings"
-          options={{
-            title: 'Settings',
-            tabBarIcon: ({ size, color }) => (
-              <Settings size={size} color={color} />
+            title: 'Home',
+            tabBarIcon: ({ size, color, focused }) => (
+              <HomeIcon size={size} color={focused ? '#2563EB' : '#000000'} />
             ),
           }}
         />
         
-        {/* Hide nested rota screens from main tab bar */}
+        {/* Tab 2: Clock In */}
+        <Tabs.Screen
+          name="time"
+          options={{
+            title: 'Clock In',
+            tabBarIcon: ({ size, color, focused }) => (
+              <Clock size={size} color={focused ? '#2563EB' : '#000000'} />
+            ),
+          }}
+        />
+        
+        {/* Tab 3: Messenger */}
+        <Tabs.Screen
+          name="chat"
+          options={{
+            title: 'Messenger',
+            tabBarIcon: ({ size, color, focused }) => (
+              <MessageSquare size={size} color={focused ? '#2563EB' : '#000000'} />
+            ),
+          }}
+        />
+        
+        {/* Tab 4: Manage Staff */}
+        <Tabs.Screen
+          name="staff"
+          options={{
+            title: 'Manage Staff',
+            tabBarIcon: ({ size, color, focused }) => (
+              <Users size={size} color={focused ? '#2563EB' : '#000000'} />
+            ),
+          }}
+        />
+        
+        {/* Tab 5: More */}
+        <Tabs.Screen
+          name="more"
+          options={{
+            title: 'More',
+            tabBarIcon: ({ size, color, focused }) => (
+              <MoreVertical size={size} color={focused ? '#2563EB' : '#000000'} />
+            ),
+          }}
+        />
+        
+        {/* Hidden screens - accessible from More tab */}
+        <Tabs.Screen
+          name="settings"
+          options={{
+            href: null,
+          }}
+        />
+        <Tabs.Screen
+          name="rota"
+          options={{
+            href: null,
+          }}
+        />
         <Tabs.Screen
           name="rota/my-shifts"
           options={{
-            href: null, // Hide from tab bar
+            href: null,
           }}
         />
         <Tabs.Screen
           name="rota/open-shifts"
           options={{
-            href: null, // Hide from tab bar
+            href: null,
           }}
         />
         <Tabs.Screen
           name="rota/shift-requests"
           options={{
-            href: null, // Hide from tab bar
+            href: null,
           }}
         />
       </Tabs>

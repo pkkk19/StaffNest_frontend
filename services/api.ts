@@ -1,19 +1,53 @@
 import axios from 'axios';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {Role, CreateRoleDto, UpdateRoleDto} from '../app/types/roles';
 
 // At the top of your file
 const USE_NGROK = false; // Set to false for local development
-const useproduction = true; // Set to true to use production server
-const LOCAL_IP = '192.168.1.67'; // Your computer's IP
 
 const getBaseURL = () => {
   if (USE_NGROK) {
-    return 'https://718d3bd8a1e2.ngrok-free.app';
+    return 'https://a07d798a0150.ngrok-free.app';
   } else {
     return `https://staffnest-backend-production.up.railway.app`;
   }
 };
+
+interface Story {
+  _id: string;
+  userId: {
+    _id: string;
+    first_name: string;
+    last_name: string;
+    profile_picture_url?: string;
+  };
+  mediaUrl: string;
+  thumbnailUrl?: string;
+  mediaType: 'image' | 'video';
+  duration: number;
+  caption?: string;
+  type: 'announcement' | 'policy' | 'event' | 'update' | 'personal';
+  viewCount: number;
+  hasViewed: boolean;
+  isCurrentUser: boolean;
+  createdAt: string;
+  expiresAt: string;
+  visibility: 'friends' | 'company' | 'both';
+}
+
+interface StoryGroup {
+  userId: string;
+  userInfo: {
+    _id: string;
+    first_name: string;
+    last_name: string;
+    profile_picture_url?: string;
+  };
+  stories: Story[];
+  hasUnviewed: boolean;
+  isCurrentUser: boolean;
+}
 
 // Create axios instance with base URL
 const api = axios.create({
@@ -194,6 +228,17 @@ export const shiftsAPI = {
   updateShift: (id: string, shiftData: any) =>
     api.put(`/shifts/${id}`, shiftData),
   deleteShift: (id: string) => api.delete(`/shifts/${id}`),
+  deleteShiftsBulk: (data: {
+    start_date?: string;
+    end_date?: string;
+    user_id?: string;
+    status?: string;
+    type?: string;
+    day?: string;
+    month?: string;
+    week?: string;
+    force?: boolean;
+  }) => api.delete('/shifts/bulk', { data }),
   clockIn: (id: string, data?: {
     latitude?: number;
     longitude?: number;
@@ -380,52 +425,49 @@ export const contactsAPI = {
   addFriendByQR: (qrData: string) => api.post('/contacts/qr-add', { qrData }),
 };
 
-// Add these interfaces at the top of api.ts file (or just before rolesAPI)
-interface Role {
-  _id: string;
-  title: string;
-  description?: string;
-  pay_amount: number;
-  pay_unit: 'hourly' | 'monthly' |'weekly' | 'fortnightly';
-  shifts?: any[];
-  default_break_minutes?: number;
-  is_active: boolean;
-  position?: number;
-  company_id: string;
-}
-
-interface CreateRoleDto {
-  title: string;
-  description?: string;
-  pay_amount: number;
-  pay_unit: 'hourly' | 'monthly' |'weekly' | 'fortnightly';
-  shifts?: any[];
-  default_break_minutes?: number;
-  is_active?: boolean;
-  position?: number;
-}
-
-interface UpdateRoleDto extends Partial<CreateRoleDto> {}
-
-// api.js - Add this after other API sections
 export const rolesAPI = {
   // Get all roles for current company
   getRoles: (): Promise<{ data: Role[] }> => api.get('/roles'),
   
+  // Get role with details (populated)
+  getRoleWithDetails: (id: string): Promise<{ data: Role }> => 
+    api.get(`/roles/${id}/details`),
+  
   // Create a new role
   createRole: (roleData: CreateRoleDto) => api.post('/roles', roleData),
+  
+  // Update a role
+  updateRole: (id: string, roleData: UpdateRoleDto) => api.put(`/roles/${id}`, roleData),
   
   // Delete a role
   deleteRole: (id: string) => api.delete(`/roles/${id}`),
   
-  // Update a role
-  updateRole: (id: string, roleData: UpdateRoleDto) => api.put(`/roles/${id}`, roleData),
+  // Add shift to role
+  addShiftToRole: (roleId: string, shiftData: any) => 
+    api.post(`/roles/${roleId}/shifts`, shiftData),
+  
+  // Update shift
+  updateShift: (roleId: string, shiftId: string, shiftData: any) =>
+    api.put(`/roles/${roleId}/shifts/${shiftId}`, shiftData),
+  
+  // Delete shift
+  deleteShift: (roleId: string, shiftId: string) =>
+    api.delete(`/roles/${roleId}/shifts/${shiftId}`),
+  
+  // Add qualified user to role
+  addQualifiedUser: (roleId: string, userId: string) =>
+    api.post(`/roles/${roleId}/qualified-users`, { user_id: userId }),
+  
+  // Add multiple qualified users
+  addQualifiedUsersBatch: (roleId: string, userIds: string[]) =>
+    api.post(`/roles/${roleId}/qualified-users/batch`, { user_ids: userIds }),
+  
+  // Remove qualified user from role
+  removeQualifiedUser: (roleId: string, userId: string) =>
+    api.delete(`/roles/${roleId}/qualified-users/${userId}`),
 };
 
-// Add to api.ts (after other API sections)
-// Add to existing api.ts
 
-// Payslip API calls
 export const payslipAPI = {
 
    createPayslip: (data: any) => api.post('/payslips/generate', data),
@@ -509,5 +551,170 @@ export const payrollConfigAPI = {
   updateCompanyPayrollSettings: (data: any) => api.put('/payroll/settings', data),
 };
 
+export const notificationAPI = {
+  registerDevice: (data: { userId: string; token: string; platform: string }) =>
+    api.post('/notifications/register-device', data),
+
+  unregisterDevice: (data: { userId: string; token: string }) =>
+    api.post('/notifications/unregister-device', data),
+
+  getPreferences: () => api.get('/notifications/preferences'),
+
+  updatePreferences: (preferences: any) => 
+    api.put('/notifications/preferences', preferences),
+
+  getNotificationHistory: () => api.get('/notifications/history'),
+
+  markAsRead: (id: string) => api.post(`/notifications/${id}/read`),
+};
+
+export const storiesAPI = {
+  // Upload a story (image or video)
+  uploadStory: (formData: FormData) => 
+    api.post('/stories/upload', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    }),
+
+  // Get stories feed for the current user
+  getStoryFeed: () => api.get('/stories/feed'),
+
+  // Get user's own stories
+  getMyStories: () => api.get('/stories/my-stories'),
+
+  // Mark a story as viewed
+  viewStory: (storyId: string) => 
+    api.post(`/stories/${storyId}/view`),
+
+  // Get who viewed your story
+  getStoryViews: (storyId: string) => 
+    api.get(`/stories/${storyId}/views`),
+
+  // Delete a story
+  deleteStory: (storyId: string) => 
+    api.delete(`/stories/${storyId}`),
+
+  // Get story statistics
+  getStats: () => api.get('/stories/stats'),
+};
+
+// Time Off API calls
+export const timeOffAPI = {
+  // Create a leave request
+  createLeaveRequest: (data: {
+    leave_type: 'time_off' | 'sick_leave' | 'paid_leave' | 'unpaid_leave' | 'annual_leave' | 'personal_leave';
+    duration_type: 'all_day' | 'partial_day';
+    start_date: string;
+    end_date: string;
+    start_time?: string;
+    end_time?: string;
+    reason: string;
+    attachment_urls?: string[];
+    is_half_day?: boolean;
+    half_day_period?: 'morning' | 'afternoon';
+    requested_hours?: number;
+  }) => api.post('/time-off/request', data),
+
+  // Get all leaves (admin)
+   getAllLeaves: (filters?: {
+    user_id?: string;
+    leave_type?: string;
+    status?: string;
+    start_date?: string;
+    end_date?: string;
+    search?: string;
+    year?: string;
+    limit?: number; // ADD THIS
+  }) => api.get('/time-off', { params: filters }),
+
+  // Get user's own leaves
+  getMyLeaves: (filters?: {
+    leave_type?: string;
+    status?: string;
+    start_date?: string;
+    end_date?: string;
+    year?: string;
+    limit?: number; // ADD THIS
+  }) => api.get('/time-off/my-leaves', { params: filters }),
+
+  // Get leave summary
+  getLeaveSummary: (year?: string) => api.get('/time-off/summary', { params: { year } }),
+
+  // Get team calendar (admin)
+  getTeamCalendar: (month?: number, year?: number) => 
+    api.get('/time-off/team-calendar', { params: { month, year } }),
+
+  // Get single leave
+  getLeave: (id: string) => api.get(`/time-off/${id}`),
+
+  // Update leave request
+  updateLeave: (id: string, data: any) => api.put(`/time-off/${id}`, data),
+
+  // Approve/reject leave (admin)
+  approveOrRejectLeave: (id: string, data: {
+    status: 'approved' | 'rejected';
+    rejection_reason?: string;
+    update_user_balance?: boolean;
+  }) => api.patch(`/time-off/${id}/approve`, data),
+
+  // Cancel leave request
+  cancelLeave: (id: string) => api.patch(`/time-off/${id}/cancel`, {}),
+
+  // Get company stats (admin)
+  getCompanyStats: (year?: string) => api.get('/time-off/stats/company', { params: { year } }),
+
+  // Delete leave (admin)
+  deleteLeave: (id: string) => api.delete(`/time-off/${id}`),
+
+  // Get user leave balance (admin)
+  getUserLeaveBalance: (userId: string) => api.get(`/time-off/user/${userId}/balance`),
+};
+
+export const autoGenerationAPI = {
+  // Generate schedule using algorithms
+  generateSchedule: (data: {
+    period: 'day' | 'week' | 'month' | 'custom';
+    start_date?: string;
+    end_date?: string;
+    fill_open_only?: boolean;
+    consider_preferences?: boolean;
+    ensure_legal_compliance?: boolean;
+    auto_create_shifts?: boolean;
+    algorithm?: 'round_robin' | 'fair_share' | 'coverage_first' | 'preference_based';
+    balance_workload?: boolean;
+    max_shifts_per_staff?: number;
+    excluded_staff_ids?: string[];
+    notes?: string;
+  }) => api.post('/auto-scheduling/generate', data),
+
+  // Get available staff for a shift
+  getAvailableStaff: (roleId: string, startTime: string, endTime: string) => 
+    api.get(`/auto-scheduling/available-staff/${roleId}`, {
+      params: { start_time: startTime, end_time: endTime }
+    }),
+
+  // Get scheduling history
+  getScheduleHistory: (limit?: number, page?: number) => 
+    api.get('/auto-scheduling/history', { params: { limit, page } }),
+
+  // Get available algorithms
+  getAlgorithms: () => api.get('/auto-scheduling/algorithms'),
+
+  // Fill open shifts
+  fillOpenShifts: () => api.post('/auto-scheduling/fill-open-shifts'),
+
+  // Preview schedule (without creating)
+  previewSchedule: (data: {
+    period: 'day' | 'week' | 'month' | 'custom';
+    start_date?: string;
+    end_date?: string;
+    fill_open_only?: boolean;
+    consider_preferences?: boolean;
+    ensure_legal_compliance?: boolean;
+    algorithm?: string;
+    balance_workload?: boolean;
+  }) => api.post('/auto-scheduling/preview', data),
+};
 
 export default api;

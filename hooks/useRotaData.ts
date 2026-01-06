@@ -121,6 +121,37 @@ export function useRotaData(filters: ShiftFilters = {}) {
     }
   };
 
+  const deleteShiftsBulk = useCallback(async (deleteDto: {
+    start_date?: string | Date;
+    end_date?: string | Date;
+    user_id?: string;
+    status?: string;
+    type?: string;
+    day?: string;
+    month?: string;
+    week?: string;
+    force?: boolean;
+  }) => {
+    try {
+      // Convert Date objects to ISO strings if needed
+      const formattedDto = {
+        ...deleteDto,
+        start_date: deleteDto.start_date 
+          ? new Date(deleteDto.start_date).toISOString()
+          : undefined,
+        end_date: deleteDto.end_date
+          ? new Date(deleteDto.end_date).toISOString()
+          : undefined,
+      };
+
+      const response = await shiftsAPI.deleteShiftsBulk(formattedDto);
+      return response.data;
+    } catch (error: any) {
+      console.error('Bulk delete failed:', error);
+      throw error.response?.data || error.message;
+    }
+  }, []);
+
   const clockIn = async (id: string, location?: { latitude: number; longitude: number }) => {
     try {
       const response = await shiftsAPI.clockIn(id, location);
@@ -158,6 +189,7 @@ export function useRotaData(filters: ShiftFilters = {}) {
     deleteShift,
     clockIn,
     clockOut,
+    deleteShiftsBulk,
   };
 }
 

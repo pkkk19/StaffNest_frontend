@@ -37,8 +37,9 @@ import { EmptyChat } from './components/EmptyChat';
 import { useChatTheme } from './hooks/useChatTheme';
 
 import { useVideo } from '../../contexts/VideoContext';
-import { VideoCallScreen } from '@/app/calls/VideoCallScreen';
+// import { VideoCallScreen } from '@/app/calls/VideoCallScreen';
 import { CallInvitationModal } from '../../app/calls/callInvitationModal';
+import { chatService } from '@/services/chatService';
 
 import { socketService } from '@/services/socketService';
 
@@ -190,6 +191,69 @@ export default function ChatPage() {
       keyboardDidHideListener.remove();
     };
   }, [isAtBottom, memoizedMessages.length]);
+
+  useEffect(() => {
+  if (!conversationId || !socketService.isConnected()) return;
+  
+  // Join the conversation room
+  socketService.joinConversation(conversationId as string);
+  
+  // Set up socket listeners for this conversation
+  const handleIncomingMessage = (message: any) => {
+    if (message.conversationId === conversationId) {
+      console.log('📨 Real-time message received in chat:', message);
+      // Update messages in real-time
+      // Note: You'll need to update your useChat hook to handle incoming messages
+      // or add a state updater here
+    }
+  };
+
+  const handleUserTyping = (data: any) => {
+    if (data.conversationId === conversationId && data.userId !== user?._id) {
+      setIsTyping(true);
+      setTypingUser(data.userName || 'Someone');
+      
+      // Auto hide typing indicator after 3 seconds
+      setTimeout(() => {
+        setIsTyping(false);
+        setTypingUser('');
+      }, 3000);
+    }
+  };
+
+  const handleUserStopTyping = (data: any) => {
+    if (data.conversationId === conversationId && data.userId !== user?._id) {
+      setIsTyping(false);
+      setTypingUser('');
+    }
+  };
+
+  const handleConversationUpdated = (data: any) => {
+    if (data._id === conversationId) {
+      console.log('🔄 Conversation updated in real-time:', data);
+      // Update conversation details if needed
+    }
+  };
+
+  // Listen to socket events
+  socketService.on('new_message', handleIncomingMessage);
+  socketService.on('user_typing', handleUserTyping);
+  socketService.on('user_stop_typing', handleUserStopTyping);
+  socketService.on('conversation_updated', handleConversationUpdated);
+
+  return () => {
+    // Leave the conversation room when component unmounts
+    if (conversationId) {
+      socketService.leaveConversation(conversationId as string);
+    }
+    
+    // Clean up listeners
+    socketService.off('new_message', handleIncomingMessage);
+    socketService.off('user_typing', handleUserTyping);
+    socketService.off('user_stop_typing', handleUserStopTyping);
+    socketService.off('conversation_updated', handleConversationUpdated);
+  };
+}, [conversationId, user?._id]);
 
   // Hide scroll button after 3 seconds of inactivity
   const hideScrollButton = useCallback(() => {
@@ -443,20 +507,36 @@ export default function ChatPage() {
     }
   };
 
-  const handleSendMessage = useCallback(() => {
-    if (newMessage.trim()) {
-      if (editMessage) {
-        updateMessage(editMessage._id, newMessage);
-        setEditMessage(null);
-      } else {
-        sendMessage();
-      }
-      setNewMessage('');
-      setReplyMessage(null);
-      // Ensure we're at bottom after sending
-      setIsAtBottom(true);
+const handleSendMessage = useCallback(() => {
+  if (newMessage.trim()) {
+    if (editMessage) {
+      updateMessage(editMessage._id, newMessage);
+      setEditMessage(null);
+    } else {
+      sendMessage();
     }
-  }, [newMessage, editMessage, sendMessage, updateMessage]);
+    setNewMessage('');
+    setReplyMessage(null);
+    // Ensure we're at bottom after sending
+    setIsAtBottom(true);
+    
+    // Send stop typing indicator
+    chatService.sendStopTypingIndicator(conversationId as string);
+  }
+}, [newMessage, editMessage, sendMessage, updateMessage, conversationId]);
+
+
+const handleTypingStart = () => {
+  if (newMessage.trim() && socketService.isConnected()) {
+    chatService.sendTypingIndicator(conversationId as string);
+  }
+};
+
+const handleTypingStop = () => {
+  if (socketService.isConnected()) {
+    chatService.sendStopTypingIndicator(conversationId as string);
+  }
+};
 
   const handleVideoCall = async () => {
     if (!conversation?.participants || !user) return;
@@ -879,13 +959,15 @@ export default function ChatPage() {
           onAttachFile={handleAttachFile}
           isReplying={!!replyMessage}
           isEditing={!!editMessage}
+          onTypingStart={handleTypingStart} // Add this
+          onTypingStop={handleTypingStop}   // Add this
         />
       </KeyboardAvoidingView>
 
       {/* Modals */}
       {renderOptionsModal()}
       <CallInvitationModal />
-      {isInCall && <VideoCallScreen />}
+      {/* {isInCall && <VideoCallScreen />} */}
     </View>
   );
 }

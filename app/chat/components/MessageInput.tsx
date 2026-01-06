@@ -1,5 +1,5 @@
 // app/chat/components/MessageInput.tsx
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   TextInput,
@@ -7,7 +7,6 @@ import {
   StyleSheet,
   Animated,
   Platform,
-  Keyboard,
   Text
 } from 'react-native';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
@@ -24,9 +23,11 @@ interface MessageInputProps {
   isEditing?: boolean;
   onCancelEdit?: () => void;
   onCancelReply?: () => void;
+  onTypingStart?: () => void;
+  onTypingStop?: () => void;
 }
 
-export function MessageInput({
+export const MessageInput: React.FC<MessageInputProps> = ({
   newMessage,
   setNewMessage,
   sending,
@@ -35,19 +36,33 @@ export function MessageInput({
   isReplying = false,
   isEditing = false,
   onCancelEdit,
-  onCancelReply
-}: MessageInputProps) {
+  onCancelReply,
+  onTypingStart,
+  onTypingStop,
+}) => {
   const { colors, isDark } = useChatTheme();
   const inputRef = useRef<TextInput>(null);
   const [isFocused, setIsFocused] = useState(false);
   
   const styles = createStyles(colors, isDark);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleSend = () => {
     if (newMessage.trim() && !sending) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       onSendMessage();
       inputRef.current?.blur();
+      
+      // Clear typing timeout on send
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = null;
+      }
+      
+      // Send typing stop
+      if (onTypingStop) {
+        onTypingStop();
+      }
     }
   };
 
@@ -57,7 +72,59 @@ export function MessageInput({
 
   const handleBlur = () => {
     setIsFocused(false);
+    
+    // Send typing stop when input loses focus
+    if (onTypingStop) {
+      onTypingStop();
+    }
+    
+    // Clear typing timeout
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
   };
+
+  const handleTextChange = (text: string) => {
+    setNewMessage(text);
+    
+    // Handle typing indicators
+    if (text.trim() && onTypingStart) {
+      // Clear previous timeout
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+      
+      // Send typing start
+      onTypingStart();
+      
+      // Set timeout to send typing stop after 3 seconds of inactivity
+      typingTimeoutRef.current = setTimeout(() => {
+        if (onTypingStop) {
+          onTypingStop();
+        }
+        typingTimeoutRef.current = null;
+      }, 3000);
+    } else if (!text.trim() && onTypingStop) {
+      // If text is empty, send typing stop
+      onTypingStop();
+      
+      // Clear timeout
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = null;
+      }
+    }
+  };
+
+  // Clean up on unmount
+  useEffect(() => {
+    return () => {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+    };
+  }, []);
 
   return (
     <View style={styles.container}>
@@ -67,6 +134,7 @@ export function MessageInput({
           <TouchableOpacity 
             style={styles.cancelButton}
             onPress={isEditing ? onCancelEdit : onCancelReply}
+            disabled={sending}
           >
             <Ionicons name="close" size={20} color={colors.textTertiary} />
             <Text style={styles.cancelButtonText}>
@@ -86,7 +154,7 @@ export function MessageInput({
           <Ionicons 
             name="add" 
             size={24} 
-            color={colors.textTertiary} 
+            color={newMessage.trim() ? colors.currentUserBubble : colors.textTertiary} 
           />
         </TouchableOpacity>
 
@@ -95,7 +163,7 @@ export function MessageInput({
           ref={inputRef}
           style={styles.textInput}
           value={newMessage}
-          onChangeText={setNewMessage}
+          onChangeText={handleTextChange}
           placeholder={isEditing ? "Edit message..." : "Type a message..."}
           placeholderTextColor={colors.textTertiary}
           multiline
@@ -105,6 +173,7 @@ export function MessageInput({
           onBlur={handleBlur}
           onSubmitEditing={handleSend}
           blurOnSubmit={false}
+          returnKeyType={newMessage.trim() ? "send" : "default"}
         />
 
         {/* Send Button or Mic Button */}
@@ -151,7 +220,7 @@ export function MessageInput({
       </View>
     </View>
   );
-}
+};
 
 const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   container: {
@@ -186,10 +255,14 @@ const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     borderRadius: 24,
     paddingHorizontal: 12,
     paddingVertical: 8,
+    minHeight: 56,
   },
   attachButton: {
     padding: 8,
     marginRight: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: 40,
   },
   textInput: {
     flex: 1,
@@ -204,6 +277,9 @@ const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   sendButton: {
     padding: 8,
     marginLeft: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: 40,
   },
   sendButtonIcon: {
     width: 32,
@@ -224,5 +300,8 @@ const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   micButton: {
     padding: 8,
     marginLeft: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: 40,
   },
 });

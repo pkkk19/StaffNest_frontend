@@ -121,31 +121,6 @@ export default function EditProfile() {
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [profileImage, setProfileImage] = useState(user?.profile_picture_url || null);
-  const [debugInfo, setDebugInfo] = useState<string>('');
-
-  const testImageUrl = async (url: string) => {
-    try {
-      console.log('🔗 Testing image URL:', url);
-      const response = await fetch(url);
-      const result = {
-        url: url,
-        status: response.status,
-        ok: response.ok,
-        contentType: response.headers.get('content-type')
-      };
-      console.log('📊 Image URL test result:', result);
-      
-      if (response.ok) {
-        setDebugInfo(`✅ Image accessible (${response.status}) - ${response.headers.get('content-type')}`);
-      } else {
-        setDebugInfo(`❌ Image failed (${response.status}) - Check S3 permissions`);
-      }
-      return result;
-    } catch (error) {
-      console.log('❌ Image URL test failed:', error);
-      return null;
-    }
-  };
 
   const pickImage = async () => {
     try {
@@ -176,7 +151,6 @@ export default function EditProfile() {
   const uploadImage = async (imageUri: string) => {
     try {
       setUploading(true);
-      setDebugInfo('🔄 Starting upload...');
 
       // Create form data
       const formData = new FormData();
@@ -186,19 +160,10 @@ export default function EditProfile() {
         name: `profile-${Date.now()}.jpg`,
       } as any);
 
-      console.log('📤 Uploading image to backend...');
       const response = await profileAPI.uploadProfilePicture(formData);
       
-      console.log('📸 Profile picture response:', {
-        profile_picture_url: response.data.profile_picture_url,
-        fullResponse: response.data
-      });
-
       const newProfileImage = response.data.profile_picture_url;
       setProfileImage(newProfileImage);
-      
-      // Test the image URL
-      await testImageUrl(newProfileImage);
       
       // Update user in context
       if (updateUser) {
@@ -209,7 +174,6 @@ export default function EditProfile() {
     } catch (error: any) {
       console.error('Error uploading image:', error);
       const errorMsg = error.response?.data?.message || 'Failed to upload image';
-      setDebugInfo(`❌ Upload failed: ${errorMsg}`);
       Alert.alert('Error', errorMsg);
     } finally {
       setUploading(false);
@@ -219,12 +183,10 @@ export default function EditProfile() {
   const removeProfileImage = async () => {
     try {
       setUploading(true);
-      setDebugInfo('🔄 Removing profile picture...');
       
       const response = await profileAPI.removeProfilePicture();
       
       setProfileImage(null);
-      setDebugInfo('✅ Profile picture removed');
       
       // Update user in context
       if (updateUser) {
@@ -235,7 +197,6 @@ export default function EditProfile() {
     } catch (error: any) {
       console.error('Error removing image:', error);
       const errorMsg = error.response?.data?.message || 'Failed to remove image';
-      setDebugInfo(`❌ Remove failed: ${errorMsg}`);
       Alert.alert('Error', errorMsg);
     } finally {
       setUploading(false);
@@ -311,20 +272,6 @@ export default function EditProfile() {
     }
   };
 
-  const handleImageLoad = (event: any) => {
-    console.log('✅ Image loaded successfully:', {
-      width: event.nativeEvent.width,
-      height: event.nativeEvent.height,
-      uri: profileImage
-    });
-    setDebugInfo(prev => prev + '\n✅ Image rendered successfully');
-  };
-
-  const handleImageError = (event: any) => {
-    console.log('❌ Image loading error:', event.nativeEvent.error);
-    setDebugInfo(prev => prev + '\n❌ Image failed to load');
-  };
-
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -348,10 +295,6 @@ export default function EditProfile() {
                 <Image 
                   source={{ uri: profileImage }} 
                   style={styles.avatarImage}
-                  onLoad={handleImageLoad}
-                  onError={handleImageError}
-                  onLoadStart={() => console.log('🔄 Image loading started')}
-                  onLoadEnd={() => console.log('🏁 Image loading ended')}
                 />
                 <ForceTouchable 
                   style={styles.removeImageButton}
@@ -367,19 +310,6 @@ export default function EditProfile() {
               </Text>
             )}
           </View>
-          
-          {/* Debug Information */}
-          {debugInfo ? (
-            <View style={styles.debugContainer}>
-              <Text style={styles.debugTitle}>Debug Info:</Text>
-              <Text style={styles.debugText}>{debugInfo}</Text>
-              {profileImage && (
-                <Text style={styles.debugUrl} numberOfLines={1}>
-                  URL: {profileImage}
-                </Text>
-              )}
-            </View>
-          ) : null}
 
           <ForceTouchable 
             style={styles.changePhotoButton} 
@@ -391,16 +321,6 @@ export default function EditProfile() {
               {uploading ? t('uploading') : profileImage ? t('changePhoto') : t('addPhoto')}
             </Text>
           </ForceTouchable>
-
-          {/* Test URL Button */}
-          {profileImage && (
-            <ForceTouchable 
-              style={styles.testButton}
-              onPress={() => testImageUrl(profileImage)}
-            >
-              <Text style={styles.testButtonText}>Test Image URL</Text>
-            </ForceTouchable>
-          )}
         </View>
 
         <View style={styles.section}>
@@ -565,7 +485,7 @@ function createStyles(theme: string) {
       }),
     },
     avatarContainerWithImage: {
-      backgroundColor: 'transparent', // Remove blue background when image exists
+      backgroundColor: 'transparent',
     },
     container: {
       flex: 1,
@@ -605,47 +525,10 @@ function createStyles(theme: string) {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 8,
-      marginBottom: 10,
     },
     changePhotoText: {
       fontSize: 14,
       color: '#2563EB',
-      fontWeight: '500',
-    },
-    // Debug styles
-    debugContainer: {
-      backgroundColor: isDark ? '#374151' : '#F3F4F6',
-      padding: 12,
-      borderRadius: 8,
-      marginBottom: 16,
-      alignSelf: 'stretch',
-    },
-    debugTitle: {
-      fontSize: 12,
-      fontWeight: '600',
-      color: isDark ? '#60A5FA' : '#2563EB',
-      marginBottom: 4,
-    },
-    debugText: {
-      fontSize: 11,
-      color: isDark ? '#D1D5DB' : '#6B7280',
-      lineHeight: 14,
-    },
-    debugUrl: {
-      fontSize: 10,
-      color: isDark ? '#9CA3AF' : '#9CA3AF',
-      marginTop: 4,
-      fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    },
-    testButton: {
-      backgroundColor: '#10B981',
-      paddingHorizontal: 16,
-      paddingVertical: 8,
-      borderRadius: 8,
-    },
-    testButtonText: {
-      color: '#FFFFFF',
-      fontSize: 12,
       fontWeight: '500',
     },
     section: {

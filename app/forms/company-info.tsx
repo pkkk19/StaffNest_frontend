@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Router } from 'expo-router';
 import { View, ScrollView, Modal, Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
@@ -12,7 +13,6 @@ import CompanyHeader from './company/CompanyHeader';
 import CompanyLogoSection from './company/CompanyLogoSection';
 import CompanyInfoSection from './company/CompanyInfoSection';
 import CompanyLocationsSection from './company/CompanyLocationSection';
-import LocationModal from './company/LocationModal';
 
 // Import types
 import { CompanyData, LocationModalState, MapState, CompanyLocation } from './company/types';
@@ -204,24 +204,20 @@ export default function CompanyInfo() {
 
   // Location management
   const openAddLocationModal = () => {
-    setModalState({
-      visible: true,
-      editingLocation: null,
-      name: '',
-      address: '',
-      coordinate: null,
-      radius: 100
+    router.push({
+      pathname:'/forms/company/location-setup',
+      params: {companyId: companyData._id}
     });
   };
 
-  const openEditLocationModal = (location: CompanyLocation) => {
-    setModalState({
-      visible: true,
-      editingLocation: location,
-      name: location.name,
-      address: location.address,
-      coordinate: { latitude: location.latitude, longitude: location.longitude },
-      radius: location.radius
+  const openEditLocationModal = (location: CompanyLocation, index: number) => {
+    router.push({
+      pathname:'/forms/company/location-setup',
+      params: {
+        editingLocation: JSON.stringify(location),
+        locationIndex: index.toString(),
+        companyId: companyData._id
+      }
     });
   };
 
@@ -425,31 +421,11 @@ export default function CompanyInfo() {
           mapRegion={mapState.region}
           locationPermission={mapState.permission}
           onAddLocation={openAddLocationModal}
-          onEditLocation={openEditLocationModal}
+          onEditLocation={(location, index) => openEditLocationModal(location, index)}
           onDeleteLocation={deleteLocation}
           onFocusLocation={focusOnLocation}
         />
       </ScrollView>
-
-      <Modal
-        visible={modalState.visible}
-        animationType="slide"
-        onRequestClose={closeLocationModal}
-      >
-        <LocationModal
-          modalState={modalState}
-          mapState={mapState}
-          onClose={closeLocationModal}
-          onSave={saveLocation}
-          onUseCurrentLocation={useCurrentLocation}
-          onMapPress={handleMapPress}
-          onNameChange={(name) => setModalState(prev => ({ ...prev, name }))}
-          onAddressChange={(address) => setModalState(prev => ({ ...prev, address }))}
-          onRadiusChange={(radius) => setModalState(prev => ({ ...prev, radius }))}
-          onRegionChange={handleRegionChange}
-          onCoordinateChange={handleCoordinateChange} // ADD THIS LINE
-        />
-      </Modal>
     </View>
   );
 }

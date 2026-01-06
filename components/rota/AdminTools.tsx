@@ -8,6 +8,7 @@ interface AdminToolsProps {
   onCopyWeek: () => void;
   onExport?: () => void;
   onImport?: () => void;
+  onAISchedule?: () => void;
 }
 
 export default function AdminTools({

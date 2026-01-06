@@ -71,7 +71,6 @@ export default function WeekView({
 
 const createStyles = (theme: string) => StyleSheet.create({
   container: {
-    padding: 16,
     gap: 12,
   },
   loadingContainer: {

@@ -4,8 +4,16 @@ export interface Shift {
   description?: string;
   start_time: string;
   end_time: string;
-  company_id: string;
-  user_id?: string;
+  company_id: {
+    _id: string;
+    name?: string;
+  };
+  user_id?: {
+    _id: string;
+    first_name: string;
+    last_name: string;
+    email: string;
+  };
   location?: string;
   location_coordinates?: {
     latitude: number;
@@ -20,7 +28,7 @@ export interface Shift {
     email: string;
   };
   status: 'scheduled' | 'in-progress' | 'late' | 'completed' | 'completed-early' | 'completed-overtime' | 'cancelled';
-  type: 'assigned' | 'open'; // OPEN is a TYPE, not a status
+  type: 'assigned' | 'open';
   clock_in_time?: string;
   clock_out_time?: string;
   clock_in_latitude?: number;

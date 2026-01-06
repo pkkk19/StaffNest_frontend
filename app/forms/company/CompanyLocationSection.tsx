@@ -10,7 +10,7 @@ interface CompanyLocationsSectionProps {
   mapRegion: any;
   locationPermission: boolean;
   onAddLocation: () => void;
-  onEditLocation: (location: CompanyLocation) => void;
+  onEditLocation: (location: CompanyLocation, index: number) => void;
   onDeleteLocation: (index: number) => void;
   onFocusLocation: (location: CompanyLocation) => void;
 }
@@ -165,7 +165,7 @@ export default function CompanyLocationsSection({
             key={location._id || index}
             location={location}
             index={index}
-            onEdit={() => onEditLocation(location)}
+            onEdit={() => onEditLocation(location, index)}
             onDelete={() => onDeleteLocation(index)}
             onFocus={() => onFocusLocation(location)}
             onOpenInMaps={() => openInGoogleMaps(location)}

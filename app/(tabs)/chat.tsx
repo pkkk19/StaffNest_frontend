@@ -1,4 +1,4 @@
-// app/(tabs)/chat.tsx
+// app/(tabs)/chat.tsx - UPDATED VERSION
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -20,6 +20,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { chatService } from '@/services/chatService';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
+import { socketService } from '@/services/socketService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface Conversation {
   _id: string;
@@ -39,22 +41,125 @@ const ChatApp = () => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [isSocketConnected, setIsSocketConnected] = useState(false);
   const { user } = useAuth();
   const { theme } = useTheme();
 
   const isDark = theme === 'dark';
   const styles = createStyles(isDark);
 
-  useEffect(() => {
-    loadConversations();
-  }, []);
+useEffect(() => {
+  loadConversations();
+  
+  // ✅ CRITICAL FIX: Sync state with the actual socket on mount
+  console.log('🔍 Initial socket check in chat.tsx');
+  const initialConnectionStatus = socketService.isConnected();
+  console.log('📡 Socket connected on mount:', initialConnectionStatus);
+  setIsSocketConnected(initialConnectionStatus); // Sync the UI state
+
+  // Set up socket listeners for real-time updates
+  const handleNewMessage = (data: any) => {
+    console.log('📨 Real-time: New message received', data);
+    updateConversationWithNewMessage(data);
+  };
+
+  const handleConversationUpdated = (data: any) => {
+    console.log('🔄 Real-time: Conversation updated', data);
+    refreshConversation(data.conversation);
+  };
+
+  const handleMessageSent = (data: any) => {
+    console.log('✅ Real-time: Message sent confirmation', data);
+    updateConversationWithNewMessage(data);
+  };
+
+  const handleConnect = () => {
+    console.log('✅ Socket connected in chat.tsx');
+    setIsSocketConnected(true); // Update state on connect
+  };
+
+  const handleDisconnect = (data: any) => {
+    console.log('❌ Socket disconnected in chat.tsx:', data?.reason);
+    setIsSocketConnected(false); // Update state on disconnect
+  };
+
+  // Listen to socket events
+  socketService.on('new_message', handleNewMessage);
+  socketService.on('conversation_updated', handleConversationUpdated);
+  socketService.on('message_sent', handleMessageSent);
+  socketService.on('connect', handleConnect);
+  socketService.on('disconnect', handleDisconnect);
+
+  return () => {
+    // Clean up listeners
+    socketService.off('new_message', handleNewMessage);
+    socketService.off('conversation_updated', handleConversationUpdated);
+    socketService.off('message_sent', handleMessageSent);
+    socketService.off('connect', handleConnect);
+    socketService.off('disconnect', handleDisconnect);
+  };
+}, [user]);
+
+  const updateConversationWithNewMessage = (messageData: any) => {
+    setConversations(prevConversations => {
+      const updatedConversations = [...prevConversations];
+      const conversationIndex = updatedConversations.findIndex(
+        conv => conv._id === messageData.conversationId
+      );
+
+      if (conversationIndex > -1) {
+        // Update the existing conversation
+        const updatedConversation = {
+          ...updatedConversations[conversationIndex],
+          lastMessage: {
+            content: messageData.content,
+            createdAt: messageData.createdAt
+          },
+          updatedAt: messageData.createdAt,
+          unreadCount: messageData.sender?._id !== user?._id 
+            ? (updatedConversations[conversationIndex].unreadCount || 0) + 1
+            : 0
+        };
+        
+        // Move conversation to top
+        updatedConversations.splice(conversationIndex, 1);
+        updatedConversations.unshift(updatedConversation);
+      } else {
+        // If conversation doesn't exist in list, reload conversations
+        loadConversations();
+      }
+
+      return updatedConversations;
+    });
+  };
+
+  const refreshConversation = (conversationData: any) => {
+    setConversations(prevConversations => {
+      const updatedConversations = prevConversations.map(conv => 
+        conv._id === conversationData._id 
+          ? { ...conv, ...conversationData }
+          : conv
+      );
+      
+      // Sort by updatedAt (newest first)
+      return updatedConversations.sort((a, b) => 
+        new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+      );
+    });
+  };
 
   const loadConversations = async () => {
     try {
       setLoading(true);
       const data = await chatService.getConversations();
       console.log('📱 Conversations loaded:', data);
-      setConversations(data || []);
+      
+      // Sort conversations by most recent first
+      const sortedConversations = (data || []).sort((a: Conversation, b: Conversation) => 
+        new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+      );
+      
+      setConversations(sortedConversations);
     } catch (error: any) {
       console.error('Error loading conversations:', error);
       Alert.alert('Error', 'Failed to load conversations');
@@ -167,6 +272,31 @@ const ChatApp = () => {
     </TouchableOpacity>
   );
 
+  // Add socket connection status indicator
+  if (!isSocketConnected && !loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#111827' : '#fff'} />
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Messages</Text>
+        </View>
+        <View style={styles.offlineContainer}>
+          <Ionicons name="wifi-outline" size={64} color={isDark ? '#4B5563' : '#ccc'} />
+          <Text style={styles.offlineText}>Connecting to real-time updates...</Text>
+          <Text style={styles.offlineSubtext}>
+            Messages may not update in real-time
+          </Text>
+          <TouchableOpacity 
+            style={styles.retryButton}
+            onPress={loadConversations}
+          >
+            <Text style={styles.retryButtonText}>Retry Connection</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   if (loading && conversations.length === 0) {
     return (
       <SafeAreaView style={styles.container}>
@@ -202,6 +332,16 @@ const ChatApp = () => {
           <Text style={styles.addContactText}>+ Contact</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Connection Status Indicator */}
+      {!isSocketConnected && (
+        <View style={styles.connectionIndicator}>
+          <Ionicons name="wifi-outline" size={14} color="#FFA500" />
+          <Text style={styles.connectionIndicatorText}>
+            Reconnecting...
+          </Text>
+        </View>
+      )}
 
       {/* Search Bar */}
       <View style={styles.searchContainer}>
@@ -316,6 +456,22 @@ const createStyles = (isDark: boolean) => StyleSheet.create({
     color: '#007AFF',
     fontSize: 14,
     fontWeight: '600',
+  },
+  connectionIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: isDark ? '#1F2937' : '#FFF3CD',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: isDark ? '#374151' : '#FFEAA7',
+  },
+  connectionIndicatorText: {
+    color: isDark ? '#FFA500' : '#856404',
+    fontSize: 12,
+    marginLeft: 6,
+    fontWeight: '500',
   },
   searchContainer: {
     padding: 16,
@@ -444,16 +600,6 @@ const createStyles = (isDark: boolean) => StyleSheet.create({
     textAlign: 'center',
     marginBottom: 20,
   },
-  contactItem: {
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: isDark ? '#374151' : '#f0f0f0',
-  },
-  contactName: {
-    fontSize: 16,
-    color: isDark ? '#F9FAFB' : '#000',
-    fontWeight: '500',
-  },
   cancelButton: {
     paddingVertical: 14,
     borderRadius: 12,
@@ -507,6 +653,37 @@ const createStyles = (isDark: boolean) => StyleSheet.create({
     marginTop: 12, 
     fontSize: 16, 
     color: isDark ? '#9CA3AF' : '#666' 
+  },
+  offlineContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  offlineText: {
+    fontSize: 18,
+    color: isDark ? '#F9FAFB' : '#000',
+    marginTop: 16,
+    textAlign: 'center',
+    fontWeight: '600',
+  },
+  offlineSubtext: {
+    fontSize: 14,
+    color: isDark ? '#9CA3AF' : '#666',
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  retryButton: {
+    marginTop: 24,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    backgroundColor: '#007AFF',
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
   refreshControl: {
     backgroundColor: 'transparent',

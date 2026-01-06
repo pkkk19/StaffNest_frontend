@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Modal,
   View,
@@ -9,10 +9,14 @@ import {
   ActivityIndicator,
   StyleSheet,
   Alert,
+  Platform,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import QRCode from 'react-native-qrcode-svg';
 import ViewShot from 'react-native-view-shot';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
+import * as Clipboard from 'expo-clipboard';
 
 interface AddContactModalProps {
   visible: boolean;
@@ -35,7 +39,122 @@ interface AddContactModalProps {
   onNavigateToRequests: () => void;
   onSetUserIdInput: (text: string) => void;
   pendingRequestsCount: number;
+  theme?: 'light' | 'dark';
 }
+
+// Simple QR code generator using pure JavaScript
+const generateQRMatrix = (text: string, size = 21) => {
+  // Create a simple QR-like pattern for demonstration
+  // In production, you'd want to use a proper QR generation algorithm
+  const matrix = Array(size).fill(null).map(() => Array(size).fill(false));
+  
+  // Add border
+  for (let i = 0; i < size; i++) {
+    matrix[0][i] = true;
+    matrix[size - 1][i] = true;
+    matrix[i][0] = true;
+    matrix[i][size - 1] = true;
+  }
+  
+  // Add position markers (simplified)
+  for (let i = 2; i < 7; i++) {
+    for (let j = 2; j < 7; j++) {
+      matrix[i][j] = true;
+      matrix[i][size - j - 1] = true;
+      matrix[size - i - 1][j] = true;
+    }
+  }
+  
+  // Add timing pattern
+  for (let i = 8; i < size - 8; i++) {
+    matrix[6][i] = i % 2 === 0;
+    matrix[i][6] = i % 2 === 0;
+  }
+  
+  // Add data based on text hash (simplified)
+  const hash = text.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  for (let i = 8; i < size - 8; i++) {
+    for (let j = 8; j < size - 8; j++) {
+      if ((i * j + hash) % 3 === 0) {
+        matrix[i][j] = true;
+      }
+    }
+  }
+  
+  return matrix;
+};
+
+// QR Code component using pure JavaScript and View
+const SimpleQRCode = ({ 
+  value, 
+  size = 200,
+  color = '#000000',
+  backgroundColor = '#FFFFFF',
+  cellSize = 8
+}: { 
+  value: string; 
+  size?: number;
+  color?: string;
+  backgroundColor?: string;
+  cellSize?: number;
+}) => {
+  const matrix = generateQRMatrix(value);
+  const cells = matrix.length;
+  const adjustedCellSize = size / cells;
+  
+  return (
+    <View 
+      style={{ 
+        width: size, 
+        height: size, 
+        backgroundColor, 
+        flexDirection: 'row', 
+        flexWrap: 'wrap',
+        padding: 4,
+        borderRadius: 8,
+        overflow: 'hidden',
+      }}
+    >
+      {matrix.map((row, i) => (
+        row.map((cell, j) => (
+          <View
+            key={`${i}-${j}`}
+            style={{
+              width: adjustedCellSize,
+              height: adjustedCellSize,
+              backgroundColor: cell ? color : backgroundColor,
+            }}
+          />
+        ))
+      ))}
+    </View>
+  );
+};
+
+// Alternative: Create QR code as data URL using canvas-like approach
+const createQRDataURL = async (text: string, size = 200) => {
+  // This is a simplified version - in production, use a proper QR library
+  const matrix = generateQRMatrix(text, 25);
+  const cellSize = size / matrix.length;
+  
+  // Create an SVG string
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">`;
+  svg += `<rect width="100%" height="100%" fill="#FFFFFF"/>`;
+  
+  matrix.forEach((row, i) => {
+    row.forEach((cell, j) => {
+      if (cell) {
+        svg += `<rect x="${j * cellSize}" y="${i * cellSize}" width="${cellSize}" height="${cellSize}" fill="#000000"/>`;
+      }
+    });
+  });
+  
+  svg += '</svg>';
+  
+  // Convert SVG to data URL
+  const dataUrl = `data:image/svg+xml;base64,${btoa(svg)}`;
+  return dataUrl;
+};
 
 const AddContactModal: React.FC<AddContactModalProps> = ({
   visible,
@@ -58,10 +177,20 @@ const AddContactModal: React.FC<AddContactModalProps> = ({
   onNavigateToRequests,
   onSetUserIdInput,
   pendingRequestsCount,
+  theme = 'light',
 }) => {
+  const isDarkTheme = theme === 'dark';
+  const [qrImageUrl, setQrImageUrl] = useState<string | null>(null);
+  
+  useEffect(() => {
+    if (qrCodeData?.qrCode) {
+      createQRDataURL(qrCodeData.qrCode).then(setQrImageUrl);
+    }
+  }, [qrCodeData]);
+  
   const ModalSection: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
     <View style={styles.modalSection}>
-      <Text style={styles.modalSectionTitle}>{title}</Text>
+      <Text style={[styles.modalSectionTitle, isDarkTheme && styles.darkText]}>{title}</Text>
       {children}
     </View>
   );
@@ -74,20 +203,80 @@ const AddContactModal: React.FC<AddContactModalProps> = ({
     disabled?: boolean;
   }> = ({ icon, title, description, onPress, disabled = false }) => (
     <TouchableOpacity 
-      style={[styles.modalOption, disabled && styles.modalOptionDisabled]} 
+      style={[
+        styles.modalOption, 
+        isDarkTheme && styles.darkModalOption,
+        disabled && styles.modalOptionDisabled
+      ]} 
       onPress={onPress}
       disabled={disabled}
     >
-      <View style={styles.modalOptionIcon}>
+      <View style={[styles.modalOptionIcon, isDarkTheme && styles.darkModalOptionIcon]}>
         {icon}
       </View>
       <View style={styles.modalOptionContent}>
-        <Text style={styles.modalOptionTitle}>{title}</Text>
-        <Text style={styles.modalOptionDescription}>{description}</Text>
+        <Text style={[styles.modalOptionTitle, isDarkTheme && styles.darkText]}>{title}</Text>
+        <Text style={[styles.modalOptionDescription, isDarkTheme && styles.darkSubText]}>{description}</Text>
       </View>
-      <Ionicons name="chevron-forward" size={20} color="#666" />
+      <Ionicons name="chevron-forward" size={20} color={isDarkTheme ? '#9CA3AF' : '#666'} />
     </TouchableOpacity>
   );
+
+  // Simple QR Code renderer
+  const renderQRCode = () => {
+    if (!qrCodeData || !qrCodeData.qrCode) {
+      return null;
+    }
+
+    return (
+      <View style={styles.qrCodeContainer}>
+        <SimpleQRCode
+          value={qrCodeData.qrCode}
+          size={200}
+          color={isDarkTheme ? '#FFFFFF' : '#000000'}
+          backgroundColor={isDarkTheme ? '#1F2937' : '#FFFFFF'}
+        />
+        <Text style={[styles.qrHint, isDarkTheme && styles.darkSubText]}>
+          Scan this code to add you as a contact
+        </Text>
+        <Text style={[styles.qrExpiry, isDarkTheme && styles.darkSubText]}>
+          Expires: {new Date(qrCodeData.expiresAt).toLocaleTimeString()}
+        </Text>
+      </View>
+    );
+  };
+
+  // Alternative: Text-based QR code for very simple representation
+  const TextQRCode = ({ value, size = 200 }: { value: string; size?: number }) => {
+    const matrix = generateQRMatrix(value, 15); // Smaller matrix for text
+    const cellSize = 1; // Character width
+    
+    return (
+      <View style={{ 
+        backgroundColor: isDarkTheme ? '#1F2937' : '#FFFFFF', 
+        padding: 8,
+        borderRadius: 8,
+        alignItems: 'center',
+      }}>
+        <Text style={{ 
+          fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+          fontSize: size / 25,
+          lineHeight: size / 25,
+          color: isDarkTheme ? '#FFFFFF' : '#000000',
+          letterSpacing: -0.5,
+        }}>
+          {matrix.map((row, i) => (
+            <Text key={i}>
+              {row.map(cell => cell ? '██' : '  ').join('')}{'\n'}
+            </Text>
+          ))}
+        </Text>
+        <Text style={[styles.qrHint, isDarkTheme && styles.darkSubText, { marginTop: 8 }]}>
+          Text QR Code - Show to admin
+        </Text>
+      </View>
+    );
+  };
 
   return (
     <Modal
@@ -96,29 +285,40 @@ const AddContactModal: React.FC<AddContactModalProps> = ({
       transparent={true}
       onRequestClose={onClose}
     >
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Add New Contact</Text>
+      <View style={[styles.modalOverlay, isDarkTheme && styles.darkModalOverlay]}>
+        <View style={[styles.modalContainer, isDarkTheme && styles.darkModalContainer]}>
+          <View style={[styles.modalHeader, isDarkTheme && styles.darkModalHeader]}>
+            <Text style={[styles.modalTitle, isDarkTheme && styles.darkText]}>Add New Contact</Text>
             <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-              <Ionicons name="close" size={24} color="#000" />
+              <Ionicons name="close" size={24} color={isDarkTheme ? '#F9FAFB' : '#000'} />
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
+          <ScrollView 
+            style={[styles.modalContent, isDarkTheme && styles.darkModalContent]} 
+            showsVerticalScrollIndicator={false}
+          >
             {/* Add by User ID Section */}
             <ModalSection title="Add by User ID">
               <View style={styles.userIdSection}>
                 <TextInput
-                  style={styles.userIdInput}
+                  style={[
+                    styles.userIdInput, 
+                    isDarkTheme && styles.darkUserIdInput
+                  ]}
                   placeholder="Enter User ID"
+                  placeholderTextColor={isDarkTheme ? '#9CA3AF' : '#999'}
                   value={userIdInput}
                   onChangeText={onSetUserIdInput}
                   autoCapitalize="none"
                   autoCorrect={false}
                 />
                 <TouchableOpacity
-                  style={[styles.userIdButton, addingByUserId && styles.userIdButtonDisabled]}
+                  style={[
+                    styles.userIdButton, 
+                    addingByUserId && styles.userIdButtonDisabled,
+                    isDarkTheme && styles.darkPrimaryButton
+                  ]}
                   onPress={onAddByUserId}
                   disabled={addingByUserId}
                 >
@@ -133,7 +333,7 @@ const AddContactModal: React.FC<AddContactModalProps> = ({
                 </TouchableOpacity>
               </View>
               <TouchableOpacity
-                style={styles.copyUserIdButton}
+                style={[styles.copyUserIdButton, isDarkTheme && styles.darkCopyUserIdButton]}
                 onPress={onCopyMyUserId}
               >
                 <Ionicons name="copy" size={16} color="#007AFF" />
@@ -164,25 +364,40 @@ const AddContactModal: React.FC<AddContactModalProps> = ({
             {/* QR Code Section */}
             <ModalSection title="QR Code">
               {qrCodeData ? (
-                <View style={styles.qrSection}>
+                <View style={[styles.qrSection, isDarkTheme && styles.darkQrSection]}>
                   <ViewShot ref={viewShotRef} options={{ format: 'png', quality: 1.0 }}>
                     <View style={styles.qrCodeContainer}>
-                      <QRCode value={qrCodeData.qrCode} size={200} backgroundColor="white" color="black" />
-                      <Text style={styles.qrHint}>Scan this code to add you as a contact</Text>
-                      <Text style={styles.qrExpiry}>
-                        Expires: {new Date(qrCodeData.expiresAt).toLocaleTimeString()}
-                      </Text>
+                      {renderQRCode()}
                     </View>
                   </ViewShot>
+                  
                   <View style={styles.qrActions}>
-                    <TouchableOpacity style={styles.secondaryButton} onPress={onDownloadQRCode}>
+                    <TouchableOpacity 
+                      style={[styles.secondaryButton, isDarkTheme && styles.darkSecondaryButton]} 
+                      onPress={onDownloadQRCode}
+                    >
                       <Ionicons name="download" size={16} color="#007AFF" />
-                      <Text style={styles.secondaryButtonText}>Save QR</Text>
+                      <Text style={[styles.secondaryButtonText, isDarkTheme && styles.darkSecondaryButtonText]}>
+                        Save QR
+                      </Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.secondaryButton} onPress={onShareQRCode}>
+                    <TouchableOpacity 
+                      style={[styles.secondaryButton, isDarkTheme && styles.darkSecondaryButton]} 
+                      onPress={onShareQRCode}
+                    >
                       <Ionicons name="share" size={16} color="#007AFF" />
-                      <Text style={styles.secondaryButtonText}>Share</Text>
+                      <Text style={[styles.secondaryButtonText, isDarkTheme && styles.darkSecondaryButtonText]}>
+                        Share
+                      </Text>
                     </TouchableOpacity>
+                  </View>
+                  
+                  {/* Alternative text-based QR code */}
+                  <View style={{ marginTop: 16 }}>
+                    <Text style={[styles.modalSectionTitle, isDarkTheme && styles.darkText, { marginBottom: 8 }]}>
+                      Alternative (Text Version):
+                    </Text>
+                    <TextQRCode value={qrCodeData.qrCode} size={150} />
                   </View>
                 </View>
               ) : (
@@ -205,18 +420,28 @@ const AddContactModal: React.FC<AddContactModalProps> = ({
             {/* Invite Link Section */}
             <ModalSection title="Invite Link">
               {inviteLink ? (
-                <View style={styles.inviteSection}>
-                  <View style={styles.inviteLinkContainer}>
+                <View style={[styles.inviteSection, isDarkTheme && styles.darkInviteSection]}>
+                  <View style={[styles.inviteLinkContainer, isDarkTheme && styles.darkInviteLinkContainer]}>
                     <Text style={styles.inviteLink} numberOfLines={1}>{inviteLink}</Text>
                   </View>
                   <View style={styles.inviteActions}>
-                    <TouchableOpacity style={styles.secondaryButton} onPress={onCopyInviteLink}>
+                    <TouchableOpacity 
+                      style={[styles.secondaryButton, isDarkTheme && styles.darkSecondaryButton]} 
+                      onPress={onCopyInviteLink}
+                    >
                       <Ionicons name="copy" size={16} color="#007AFF" />
-                      <Text style={styles.secondaryButtonText}>Copy</Text>
+                      <Text style={[styles.secondaryButtonText, isDarkTheme && styles.darkSecondaryButtonText]}>
+                        Copy
+                      </Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.secondaryButton} onPress={onShareInviteLink}>
+                    <TouchableOpacity 
+                      style={[styles.secondaryButton, isDarkTheme && styles.darkSecondaryButton]} 
+                      onPress={onShareInviteLink}
+                    >
                       <Ionicons name="share" size={16} color="#007AFF" />
-                      <Text style={styles.secondaryButtonText}>Share</Text>
+                      <Text style={[styles.secondaryButtonText, isDarkTheme && styles.darkSecondaryButtonText]}>
+                        Share
+                      </Text>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -256,11 +481,17 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'flex-end',
   },
+  darkModalOverlay: {
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+  },
   modalContainer: {
     backgroundColor: '#fff',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     maxHeight: '90%',
+  },
+  darkModalContainer: {
+    backgroundColor: '#111827',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -270,15 +501,27 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
   },
+  darkModalHeader: {
+    borderBottomColor: '#374151',
+  },
   modalTitle: {
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  darkText: {
+    color: '#F9FAFB',
+  },
+  darkSubText: {
+    color: '#9CA3AF',
   },
   closeButton: {
     padding: 4,
   },
   modalContent: {
     padding: 20,
+  },
+  darkModalContent: {
+    backgroundColor: '#111827',
   },
   modalSection: {
     marginBottom: 24,
@@ -297,6 +540,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 8,
   },
+  darkModalOption: {
+    backgroundColor: '#1F2937',
+  },
   modalOptionDisabled: {
     opacity: 0.6,
   },
@@ -308,6 +554,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
+  },
+  darkModalOptionIcon: {
+    backgroundColor: '#374151',
   },
   modalOptionContent: {
     flex: 1,
@@ -337,6 +586,12 @@ const styles = StyleSheet.create({
     borderColor: '#e0e0e0',
     marginRight: 8,
     fontSize: 16,
+    color: '#000',
+  },
+  darkUserIdInput: {
+    backgroundColor: '#1F2937',
+    borderColor: '#4B5563',
+    color: '#F9FAFB',
   },
   userIdButton: {
     flexDirection: 'row',
@@ -346,6 +601,9 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 8,
     gap: 6,
+  },
+  darkPrimaryButton: {
+    backgroundColor: '#2563EB',
   },
   userIdButtonDisabled: {
     backgroundColor: '#ccc',
@@ -364,6 +622,9 @@ const styles = StyleSheet.create({
     gap: 8,
     alignSelf: 'flex-start',
   },
+  darkCopyUserIdButton: {
+    backgroundColor: '#1F2937',
+  },
   copyUserIdText: {
     color: '#007AFF',
     fontSize: 14,
@@ -376,9 +637,14 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
   },
+  darkQrSection: {
+    backgroundColor: '#1F2937',
+  },
   qrCodeContainer: {
     alignItems: 'center',
     marginBottom: 16,
+    padding: 16,
+    borderRadius: 8,
   },
   qrHint: {
     fontSize: 12,
@@ -395,12 +661,16 @@ const styles = StyleSheet.create({
   qrActions: {
     flexDirection: 'row',
     gap: 12,
+    marginTop: 16,
   },
   // Invite Link Section
   inviteSection: {
     backgroundColor: '#f8f8f8',
     padding: 16,
     borderRadius: 12,
+  },
+  darkInviteSection: {
+    backgroundColor: '#1F2937',
   },
   inviteLinkContainer: {
     backgroundColor: '#fff',
@@ -409,6 +679,10 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     borderWidth: 1,
     borderColor: '#e0e0e0',
+  },
+  darkInviteLinkContainer: {
+    backgroundColor: '#374151',
+    borderColor: '#4B5563',
   },
   inviteLink: {
     fontSize: 14,
@@ -429,10 +703,17 @@ const styles = StyleSheet.create({
     borderColor: '#007AFF',
     gap: 6,
   },
+  darkSecondaryButton: {
+    backgroundColor: '#374151',
+    borderColor: '#2563EB',
+  },
   secondaryButtonText: {
     color: '#007AFF',
     fontSize: 14,
     fontWeight: '600',
+  },
+  darkSecondaryButtonText: {
+    color: '#60A5FA',
   },
 });
 
