@@ -7,7 +7,7 @@ export const useCountryForm = (initialCountry = 'UK') => {
   const [countryConfig, setCountryConfig] = useState(null);
 
   // Country configurations for frontend
-  const countryFields = {
+  const countryFields: Record<string, any> = {
     UK: {
       identification: {
         label: t('niNumber'),

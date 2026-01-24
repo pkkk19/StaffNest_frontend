@@ -1,4 +1,4 @@
-// app/chat/components/MessageInput.tsx
+// app/chat/components/MessageInput.tsx - FIXED FOR ANDROID
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
@@ -7,7 +7,8 @@ import {
   StyleSheet,
   Animated,
   Platform,
-  Text
+  Text,
+  Keyboard
 } from 'react-native';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -43,15 +44,16 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   const { colors, isDark } = useChatTheme();
   const inputRef = useRef<TextInput>(null);
   const [isFocused, setIsFocused] = useState(false);
+  const [inputHeight, setInputHeight] = useState(40);
   
-  const styles = createStyles(colors, isDark);
+  const styles = createStyles(colors, isDark, inputHeight);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleSend = () => {
     if (newMessage.trim() && !sending) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       onSendMessage();
-      inputRef.current?.blur();
+      Keyboard.dismiss();
       
       // Clear typing timeout on send
       if (typingTimeoutRef.current) {
@@ -117,6 +119,12 @@ export const MessageInput: React.FC<MessageInputProps> = ({
     }
   };
 
+  const handleContentSizeChange = (event: any) => {
+    const height = event.nativeEvent.contentSize.height;
+    // Limit max height to 100px for multiline input
+    setInputHeight(Math.min(Math.max(40, height), 100));
+  };
+
   // Clean up on unmount
   useEffect(() => {
     return () => {
@@ -164,6 +172,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
           style={styles.textInput}
           value={newMessage}
           onChangeText={handleTextChange}
+          onContentSizeChange={handleContentSizeChange}
           placeholder={isEditing ? "Edit message..." : "Type a message..."}
           placeholderTextColor={colors.textTertiary}
           multiline
@@ -172,8 +181,10 @@ export const MessageInput: React.FC<MessageInputProps> = ({
           onFocus={handleFocus}
           onBlur={handleBlur}
           onSubmitEditing={handleSend}
-          blurOnSubmit={false}
+          blurOnSubmit={Platform.OS === 'ios'}
           returnKeyType={newMessage.trim() ? "send" : "default"}
+          textAlignVertical="center"
+          enablesReturnKeyAutomatically={true}
         />
 
         {/* Send Button or Mic Button */}
@@ -222,11 +233,12 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   );
 };
 
-const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
+const createStyles = (colors: any, isDark: boolean, inputHeight: number) => StyleSheet.create({
   container: {
     backgroundColor: colors.backgroundSecondary,
     paddingHorizontal: 12,
     paddingVertical: 8,
+    paddingBottom: Platform.OS === 'ios' ? 20 : 16, // Extra padding for Android
   },
   actionButtonsContainer: {
     flexDirection: 'row',
@@ -269,10 +281,11 @@ const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     fontSize: 16,
     color: colors.textPrimary,
     maxHeight: 100,
-    minHeight: 40,
+    height: inputHeight,
     paddingVertical: Platform.OS === 'ios' ? 10 : 8,
     paddingHorizontal: 8,
     textAlignVertical: 'center',
+    includeFontPadding: false,
   },
   sendButton: {
     padding: 8,

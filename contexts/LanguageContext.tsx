@@ -125,7 +125,17 @@ const translations: Record<Language, TranslationStrings> = {
     phoneNumber: 'Phone Number',
     dateOfBirth: 'Date of Birth (YYYY-MM-DD)',
     companyInfo: 'Company Information',
-    
+    signupRedirectMessage: "New user signups are only available through our website. Would you like to visit hourwize.com?",
+    forgotPasswordRedirectMessage: "Password reset is only available through our website. Would you like to visit hourwize.com?",
+    newAccountRedirectMessage: "New accounts must be created at hourwize.com",
+    visitOurWebsite: "Visit our website",
+    visitWebsite: "Visit Website",
+    goToWebsite: "Go to Website",
+    manageYourWorkforce: "Manage Your Workforce",
+    cannotOpenWebsite: "Unable to open the website. Please try again.",
+    websiteOpenFailed: "Failed to open website. Please check your internet connection.",
+    open: "Open",
+
     // Additional translations
     staffDetails: 'Staff Details',
     contactInformation: 'Contact Information',

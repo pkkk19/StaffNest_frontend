@@ -6,20 +6,25 @@ import api from './api';
 
 // Helper function to create proper notification behavior
 const createNotificationBehavior = (): Notifications.NotificationBehavior => {
-  const baseBehavior: any = {
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    priority: Notifications.AndroidNotificationPriority.HIGH,
-  };
-
-  // iOS-specific properties
+  // Platform-specific properties - FIXED
   if (Platform.OS === 'ios') {
-    baseBehavior.shouldShowBanner = true;
-    baseBehavior.shouldShowList = true;
+    return {
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+      priority: Notifications.AndroidNotificationPriority.HIGH,
+    };
+  } else {
+    // Android should use the new properties too
+    return {
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+      priority: Notifications.AndroidNotificationPriority.HIGH,
+    };
   }
-
-  return baseBehavior as Notifications.NotificationBehavior;
 };
 
 // Configure notification behavior
@@ -30,6 +35,9 @@ Notifications.setNotificationHandler({
 export class NotificationService {
   private static instance: NotificationService;
   private token: string | null = null;
+  private isChatOpen: boolean = false;
+  private currentChatId: string | null = null;
+  private activeConversations: Set<string> = new Set(); // Track all active conversations
 
   static getInstance(): NotificationService {
     if (!NotificationService.instance) {
@@ -38,26 +46,62 @@ export class NotificationService {
     return NotificationService.instance;
   }
 
+  // MARK CONVERSATION METHODS - ADD THESE
+  markConversationAsActive(conversationId: string): void {
+    this.activeConversations.add(conversationId);
+    console.log(`✅ Marked conversation as active: ${conversationId}`);
+  }
+
+  markConversationAsInactive(conversationId: string): void {
+    this.activeConversations.delete(conversationId);
+    console.log(`✅ Marked conversation as inactive: ${conversationId}`);
+  }
+
+  isConversationActive(conversationId: string): boolean {
+    return this.activeConversations.has(conversationId);
+  }
+
+  // Call this when chat opens
+  setChatOpen(chatId: string | null): void {
+    this.isChatOpen = chatId !== null;
+    this.currentChatId = chatId;
+    console.log(`💬 Chat state: ${chatId ? `Open (${chatId})` : 'Closed'}`);
+  }
+
+  // Check if notification should be shown for current chat
+  shouldShowChatNotification(conversationId: string): boolean {
+    if (!this.isChatOpen) return true;
+    
+    // If chat is open but it's a different conversation, show notification
+    if (this.currentChatId !== conversationId) return true;
+    
+    console.log(`🔕 Suppressing notification for open chat: ${conversationId}`);
+    return false;
+  }
+
   async registerForPushNotifications(): Promise<string | null> {
     if (!Device.isDevice) {
       console.log('Must use physical device for push notifications');
       return null;
     }
 
-    const { status: existingStatus } = await Notifications.getPermissionsAsync();
-    let finalStatus = existingStatus;
-
-    if (existingStatus !== 'granted') {
-      const { status } = await Notifications.requestPermissionsAsync();
-      finalStatus = status;
-    }
-
-    if (finalStatus !== 'granted') {
-      console.log('Failed to get push token for push notification!');
-      return null;
-    }
-
     try {
+      // Create notification channel for Android
+      await this.createNotificationChannel();
+
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+
+      if (finalStatus !== 'granted') {
+        console.log('Failed to get push token for push notification!');
+        return null;
+      }
+
       let token;
       
       // Check if we have EAS project ID
@@ -71,10 +115,10 @@ export class NotificationService {
       }
 
       this.token = token;
-      console.log('Expo push token:', token);
+      console.log('✅ Expo push token received:', token);
       return token;
     } catch (error) {
-      console.log('Error getting push token:', error);
+      console.error('❌ Error getting push token:', error);
       return null;
     }
   }
@@ -86,9 +130,9 @@ export class NotificationService {
         token,
         platform: Platform.OS,
       });
-      console.log('Device token registered with backend');
+      console.log('✅ Device token registered with backend');
     } catch (error) {
-      console.error('Failed to register device token:', error);
+      console.error('❌ Failed to register device token with backend:', error);
     }
   }
 
@@ -99,8 +143,9 @@ export class NotificationService {
         token: this.token,
       });
       this.token = null;
+      console.log('✅ Device token unregistered');
     } catch (error) {
-      console.error('Failed to unregister device token:', error);
+      console.error('❌ Failed to unregister device token:', error);
     }
   }
 
@@ -134,9 +179,9 @@ export class NotificationService {
         } as Notifications.TimeIntervalTriggerInput,
       });
       
-      console.log(`Scheduled shift notification for ${triggerDate.toISOString()}`);
+      console.log(`✅ Scheduled shift notification for ${triggerDate.toISOString()}`);
     } else {
-      console.log('Shift notification time has already passed');
+      console.log('⚠️ Shift notification time has already passed');
     }
   }
 
@@ -187,14 +232,18 @@ export class NotificationService {
         } as Notifications.DailyTriggerInput,
       });
     }
+    
+    console.log(`✅ Scheduled repeating ${repeat} shift notification`);
   }
 
   async cancelNotification(notificationId: string): Promise<void> {
     await Notifications.cancelScheduledNotificationAsync(notificationId);
+    console.log(`✅ Cancelled notification: ${notificationId}`);
   }
 
   async cancelAllNotifications(): Promise<void> {
     await Notifications.cancelAllScheduledNotificationsAsync();
+    console.log('✅ Cancelled all scheduled notifications');
   }
 
   async getNotificationPreferences(): Promise<any> {
@@ -202,7 +251,7 @@ export class NotificationService {
       const response = await api.get('/notifications/preferences');
       return response.data;
     } catch (error) {
-      console.error('Failed to get notification preferences:', error);
+      console.error('❌ Failed to get notification preferences:', error);
       return null;
     }
   }
@@ -210,8 +259,9 @@ export class NotificationService {
   async updateNotificationPreferences(preferences: any): Promise<void> {
     try {
       await api.put('/notifications/preferences', preferences);
+      console.log('✅ Updated notification preferences');
     } catch (error) {
-      console.error('Failed to update notification preferences:', error);
+      console.error('❌ Failed to update notification preferences:', error);
       throw error;
     }
   }
@@ -228,6 +278,7 @@ export class NotificationService {
         enableVibrate: true,
         showBadge: true,
       });
+      console.log('✅ Created Android notification channel');
     }
   }
 
@@ -270,9 +321,31 @@ export class NotificationService {
     return await Notifications.getBadgeCountAsync();
   }
 
-  // Present local notification immediately
+  // Present local notification immediately with chat check
   async presentLocalNotification(title: string, body: string, data?: any): Promise<string> {
-    return await Notifications.scheduleNotificationAsync({
+    // Check if it's a chat notification and conversation screen is open
+    if (data?.conversationId && this.isConversationActive(data.conversationId)) {
+      console.log(`🔕 Suppressing notification for open conversation screen: ${data.conversationId}`);
+      // Still update badge silently
+      this.getBadgeCountAsync().then(count => {
+        this.setBadgeCountAsync(count + 1).catch(console.error);
+      }).catch(console.error);
+      return 'suppressed';
+    }
+
+    // Also check the old method for backward compatibility
+    if (data?.type === 'new_message' && data?.conversationId) {
+      if (this.shouldShowChatNotification(data.conversationId) === false) {
+        console.log(`🔕 Suppressing chat notification for open chat: ${data.conversationId}`);
+        // Still update badge silently
+        this.getBadgeCountAsync().then(count => {
+          this.setBadgeCountAsync(count + 1).catch(console.error);
+        }).catch(console.error);
+        return 'suppressed';
+      }
+    }
+
+    const notificationId = await Notifications.scheduleNotificationAsync({
       content: {
         title,
         body,
@@ -281,12 +354,72 @@ export class NotificationService {
       },
       trigger: null as any, // Immediate
     });
+    console.log('✅ Presented local notification:', notificationId);
+    return notificationId;
   }
 
   // Check if notifications are enabled
   async areNotificationsEnabled(): Promise<boolean> {
     const settings = await Notifications.getPermissionsAsync();
     return settings.granted || settings.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL;
+  }
+
+  // NEW: Handle incoming push notifications with conversation check
+  async handleIncomingPushNotification(notificationData: any): Promise<void> {
+    const { conversationId } = notificationData;
+    
+    // Don't show notification if conversation screen is open
+    if (conversationId && this.isConversationActive(conversationId)) {
+      console.log('🔕 Suppressing push notification for open conversation screen:', conversationId);
+      return;
+    }
+    
+    // Also check the old method for backward compatibility
+    if (conversationId && this.shouldShowChatNotification(conversationId) === false) {
+      console.log('🔕 Suppressing push notification for open chat:', conversationId);
+      return;
+    }
+    
+    // Show notification
+    await this.presentLocalNotification(
+      notificationData.title || 'New Message',
+      notificationData.body || 'You have a new message',
+      notificationData
+    );
+  }
+
+  // New method to specifically handle chat notifications with conversation check
+  async handleChatNotification(conversationId: string, message: string, senderName: string, data?: any): Promise<string> {
+    // Check if conversation screen is open
+    if (this.isConversationActive(conversationId)) {
+      console.log(`🔕 Suppressing chat notification for open conversation: ${conversationId}`);
+      // Update badge silently
+      this.getBadgeCountAsync().then(count => {
+        this.setBadgeCountAsync(count + 1).catch(console.error);
+      }).catch(console.error);
+      return 'suppressed';
+    }
+
+    // Check using old method for backward compatibility
+    if (this.shouldShowChatNotification(conversationId) === false) {
+      console.log(`🔕 Suppressing chat notification for open chat: ${conversationId}`);
+      // Update badge silently
+      this.getBadgeCountAsync().then(count => {
+        this.setBadgeCountAsync(count + 1).catch(console.error);
+      }).catch(console.error);
+      return 'suppressed';
+    }
+
+    // Show the notification
+    return await this.presentLocalNotification(
+      senderName,
+      message,
+      {
+        ...data,
+        type: 'new_message',
+        conversationId
+      }
+    );
   }
 }
 

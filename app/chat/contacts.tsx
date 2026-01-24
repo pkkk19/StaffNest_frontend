@@ -7,6 +7,7 @@ import { useContacts } from './contacts/hooks/useContacts';
 import ContactsTabs from './contacts/components/ContactsTabs';
 import AddContactModal from './contacts/components/AddContactModal';
 import QRScanner from '@/components/QRScanner';
+import CustomHeader from './contacts/components/CustomHeader';
 
 export default function ContactsPage() {
   const router = useRouter();
@@ -51,19 +52,13 @@ export default function ContactsPage() {
 
   return (
     <View style={styles.container}>
-      <Stack.Screen options={{
-        title: 'Contacts',
-        headerLeft: () => (
-          <TouchableOpacity onPress={() => router.back()} style={styles.headerButton}>
-            <Ionicons name="arrow-back" size={24} color="#007AFF" />
-          </TouchableOpacity>
-        ),
-        headerRight: () => (
-          <TouchableOpacity onPress={handleAddContact} style={styles.headerButton}>
-            <Ionicons name="person-add" size={24} color="#007AFF" />
-          </TouchableOpacity>
-        ),
-      }} />
+      <CustomHeader 
+  title="Contacts"
+  onAddContact={handleAddContact}
+  showBackButton={true}
+  pendingRequestsCount={pendingRequests.length}
+  onNavigateToRequests={() => setActiveTab('requests')}
+/>
 
       <TouchableOpacity style={styles.floatingButton} onPress={handleAddContact}>
         <Ionicons name="person-add" size={24} color="#fff" />

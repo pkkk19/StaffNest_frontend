@@ -6,6 +6,8 @@ interface NotificationContextType {
   incrementNotificationCount: () => void;
   resetNotificationCount: () => void;
   refreshNotifications: () => Promise<void>;
+  hasPermission: boolean;
+  checkPermission: () => Promise<boolean>;
 }
 
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
@@ -13,6 +15,7 @@ const NotificationContext = createContext<NotificationContextType | undefined>(u
 export function NotificationProvider({ children }: { children: ReactNode }) {
   // Initialize with explicit type and initial value
   const [notificationCount, setNotificationCount] = useState<number>(0);
+  const [hasPermission, setHasPermission] = useState<boolean>(false);
 
   const incrementNotificationCount = () => {
     setNotificationCount(prev => prev + 1);
@@ -26,8 +29,22 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     try {
       const count = await notificationService.getBadgeCountAsync();
       setNotificationCount(count);
+      
+      const enabled = await notificationService.areNotificationsEnabled();
+      setHasPermission(enabled);
     } catch (error) {
       console.error('Failed to refresh notification count:', error);
+    }
+  };
+
+  const checkPermission = async (): Promise<boolean> => {
+    try {
+      const enabled = await notificationService.areNotificationsEnabled();
+      setHasPermission(enabled);
+      return enabled;
+    } catch (error) {
+      console.error('Failed to check notification permission:', error);
+      return false;
     }
   };
 
@@ -37,6 +54,8 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       incrementNotificationCount,
       resetNotificationCount,
       refreshNotifications,
+      hasPermission,
+      checkPermission,
     }}>
       {children}
     </NotificationContext.Provider>

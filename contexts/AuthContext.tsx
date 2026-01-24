@@ -3,6 +3,7 @@ import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { authAPI, profileAPI } from '@/services/api';
 import { socketService } from '@/services/socketService';
+import { notificationService } from '@/services/notificationService';
 
 interface User {
   _id: string;
@@ -50,43 +51,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Listen to socket connection status
   useEffect(() => {
     const handleConnect = () => {
-      console.log('✅ Socket connected - updating state');
       setSocketConnected(true);
     };
 
     const handleDisconnect = () => {
-      console.log('❌ Socket disconnected - updating state');
       setSocketConnected(false);
     };
 
-    const handleConnectError = (error: any) => {
-      console.error('❌ Socket connection error in AuthContext:', error);
-      setSocketConnected(false);
-    };
-
-    // Add socket event listeners
     socketService.on('connect', handleConnect);
     socketService.on('disconnect', handleDisconnect);
-    socketService.on('connect_error', handleConnectError);
 
     return () => {
-      // Clean up listeners
       socketService.off('connect', handleConnect);
       socketService.off('disconnect', handleDisconnect);
-      socketService.off('connect_error', handleConnectError);
     };
   }, []);
 
   const checkAuthStatus = async () => {
     try {
       const access_token = await AsyncStorage.getItem('authaccess_token');
-      console.log('🔍 Auth check - token exists:', !!access_token);
       
       if (access_token) {
         await fetchProfile();
-        
-        // Connect socket with the token
-        console.log('🔗 Attempting socket connection...');
         socketService.connect(access_token);
       } else {
         setLoading(false);
@@ -108,8 +94,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (error.response?.status === 401) {
         setTokenExpired(true);
         await AsyncStorage.removeItem('authaccess_token');
-      } else if (error.response?.status === 401 || error.response?.status === 403) {
-        await AsyncStorage.removeItem('authaccess_token');
       }
     } finally {
       setLoading(false);
@@ -125,17 +109,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error('No authentication access_token received from server');
       }
       
-      // Store token with consistent key
+      // Store token and user
       await AsyncStorage.setItem('authaccess_token', access_token);
       await AsyncStorage.setItem('user', JSON.stringify(user));
       setUser(user);
       setTokenExpired(false);
       
-      console.log('🔗 Connecting socket after login...');
+      // Connect socket
       socketService.connect(access_token);
       
-      // Push notification code removed completely
-      console.log('✅ Login successful - user authenticated');
+      // Register for push notifications
+      try {
+        const deviceToken = await notificationService.registerForPushNotifications();
+        if (deviceToken && user._id) {
+          await notificationService.registerTokenWithBackend(user._id, deviceToken);
+        }
+      } catch (notificationError) {
+        console.log('Notification registration skipped or failed');
+      }
+      
     } catch (error: any) {
       console.error('Login failed', error);
       const errorMessage = error.response?.data?.message || error.message || 'An error occurred';
@@ -157,8 +149,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(user);
       setTokenExpired(false);
       
-      console.log('🔗 Connecting socket after registration...');
       socketService.connect(access_token);
+      
+      // Register for push notifications
+      try {
+        const deviceToken = await notificationService.registerForPushNotifications();
+        if (deviceToken && user._id) {
+          await notificationService.registerTokenWithBackend(user._id, deviceToken);
+        }
+      } catch (notificationError) {
+        console.log('Notification registration skipped or failed');
+      }
+      
     } catch (error: any) {
       console.error('Registration failed', error);
       const errorMessage = error.response?.data?.message || error.message || 'An error occurred';
@@ -168,16 +170,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
-    console.log('🔌 Disconnecting socket on logout...');
     socketService.disconnect();
     await AsyncStorage.removeItem('authaccess_token');
-    await AsyncStorage.removeItem('user'); // Also remove stored user
+    await AsyncStorage.removeItem('user');
     
     setUser(null);
     setTokenExpired(false);
     setSocketConnected(false);
-    
-    console.log('✅ Logout successful');
   };
 
   const updateUser = (updatedUser: User) => {
@@ -192,10 +191,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const token = await AsyncStorage.getItem('authaccess_token');
       if (token) {
-        console.log('🔄 Retrying socket connection...');
         socketService.connect(token);
-      } else {
-        console.log('❌ No token available for socket retry');
       }
     } catch (error) {
       console.error('Socket retry failed:', error);

@@ -9,11 +9,13 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
-  Image
+  Image,
+  AppState,
+  AppStateStatus
 } from 'react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import StoryItem from './StoryItem';
 import StoriesViewer from './StoriesViewer';
 import { storiesAPI } from '@/services/api';
@@ -68,32 +70,21 @@ interface StoriesViewerStory {
   postedAt: string;
   duration: number;
   isSeen: boolean;
-  type: 'announcement' | 'policy' | 'event' | 'update' | 'achievement';
+  type: 'announcement' | 'policy' | 'event' | 'update' | 'achievement' | 'personal';
   viewsCount?: number;
   likesCount?: number;
+  mediaType?: 'image' | 'video';
+  mimeType?: string;
 }
 
-// Function to clean AWS S3 URLs - SIMPLIFIED VERSION
+// SIMPLIFIED URL cleaning function - backend now returns clean URLs
 const cleanImageUrl = (url: string | undefined): string => {
   if (!url) return '';
   
-  // Try multiple approaches to handle AWS S3 URLs
   try {
-    // If it's already a clean URL, return it
-    if (url.startsWith('http') && !url.includes('?')) {
-      return url;
-    }
-    
-    // If it has query parameters, try to remove them
+    // Backend already returns clean URLs, but just in case
     if (url.includes('?')) {
-      const urlParts = url.split('?');
-      const baseUrl = urlParts[0];
-      
-      // Check if the base URL is valid
-      if (baseUrl.startsWith('http')) {
-        console.log(`Cleaned URL: ${baseUrl.substring(0, 60)}...`);
-        return baseUrl;
-      }
+      return url.split('?')[0];
     }
     
     return url;
@@ -103,27 +94,14 @@ const cleanImageUrl = (url: string | undefined): string => {
   }
 };
 
-// Function to preload images - SIMPLIFIED
+// Function to preload images
 const preloadImage = async (url: string): Promise<boolean> => {
   try {
-    // First try the cleaned URL
     const cleanedUrl = cleanImageUrl(url);
-    console.log(`Trying to preload: ${cleanedUrl.substring(0, 60)}...`);
-    
-    const result = await Image.prefetch(cleanedUrl);
-    console.log(`Preload ${result ? 'success' : 'failed'}: ${cleanedUrl.substring(0, 60)}...`);
-    return result;
+    return await Image.prefetch(cleanedUrl);
   } catch (error) {
     console.log('Preload error:', error);
-    
-    // Try the original URL as fallback
-    try {
-      console.log(`Trying fallback preload: ${url.substring(0, 60)}...`);
-      return await Image.prefetch(url);
-    } catch (fallbackError) {
-      console.log('Fallback preload also failed');
-      return false;
-    }
+    return false;
   }
 };
 
@@ -142,24 +120,30 @@ export default function StoriesCarousel() {
   const [preloadedImages, setPreloadedImages] = useState<{[key: string]: boolean}>({});
   const [preloading, setPreloading] = useState(false);
   const preloadedRef = useRef<{[key: string]: boolean}>({});
+  
+  // Add state for tracking upload status
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [lastNavigationTime, setLastNavigationTime] = useState<number>(0);
+  const appState = useRef(AppState.currentState);
 
   const isDark = theme === 'dark';
   const styles = createStyles(isDark);
 
-  // Transform backend story to StoriesViewer format with proper error handling
+  // Transform backend story to StoriesViewer format
   const transformStoryToViewerFormat = (story: Story, groupUserInfo?: any): StoriesViewerStory => {
-    // Use story.userInfo if available, otherwise use group userInfo
     const userInfo = story.userInfo || groupUserInfo;
-    
-    // Clean the media URL for the viewer
     const mediaUrl = cleanImageUrl(story.mediaUrl || '');
+    
+    // Determine image URL for the viewer
+    const imageUrl = story.thumbnailUrl ? cleanImageUrl(story.thumbnailUrl) : mediaUrl;
     
     return {
       id: story._id || `story-${Date.now()}`,
       title: story.caption || (story.type ? story.type.charAt(0).toUpperCase() + story.type.slice(1) : 'Story'),
       description: story.caption || `A ${story.type || 'personal'} story`,
       mediaUrl: mediaUrl,
-      imageUrl: mediaUrl,
+      imageUrl: imageUrl,
       thumbnailUrl: story.thumbnailUrl,
       postedBy: {
         id: userInfo?._id || 'unknown',
@@ -172,11 +156,12 @@ export default function StoriesCarousel() {
       isSeen: story.hasViewed || false,
       type: (story.type || 'personal') as any,
       viewsCount: 0,
-      likesCount: 0
+      likesCount: 0,
+      mediaType: story.mediaType,
     };
   };
 
-  // Preload all story images - SIMPLIFIED
+  // Preload all story images
   const preloadAllStoryImages = async (groups: StoryGroup[]) => {
     setPreloading(true);
     const newPreloadedImages: {[key: string]: boolean} = {};
@@ -190,16 +175,14 @@ export default function StoriesCarousel() {
         if (preloadCount >= maxPreload) break;
         
         const storyKey = `${group.userId}-${story._id}`;
-        const imageUrl = story.mediaUrl || story.thumbnailUrl;
+        const imageUrl = story.thumbnailUrl || story.mediaUrl;
         
         if (imageUrl) {
           try {
             const success = await preloadImage(imageUrl);
             newPreloadedImages[storyKey] = success;
-            console.log(`Preloaded ${storyKey}: ${success}`);
           } catch (error) {
             newPreloadedImages[storyKey] = false;
-            console.log(`Failed to preload ${storyKey}`);
           }
           preloadCount++;
         }
@@ -210,32 +193,30 @@ export default function StoriesCarousel() {
     preloadedRef.current = newPreloadedImages;
     setPreloadedImages(newPreloadedImages);
     setPreloading(false);
-    
-    console.log(`Preloaded ${Object.keys(newPreloadedImages).length} images`);
   };
 
-  // Fetch stories from backend and preload images
+  // Fetch stories from backend
   const fetchStories = async () => {
     try {
       setLoading(true);
       setError(null);
       
       const response = await storiesAPI.getStoryFeed();
-      console.log('Stories API response received');
       
-      if (response.data && Array.isArray(response.data)) {
-        console.log(`Got ${response.data.length} story groups`);
+      if (response.success && Array.isArray(response.data)) {
         setStoryGroups(response.data);
         
         // Start preloading immediately
         preloadAllStoryImages(response.data);
       } else {
-        console.log('No story data received');
         setStoryGroups([]);
+        if (response.message) {
+          setError(response.message);
+        }
       }
     } catch (err: any) {
       console.error('Failed to fetch stories:', err);
-      setError('Failed to load stories');
+      setError(err.message || 'Failed to load stories');
       setStoryGroups([]);
     } finally {
       setLoading(false);
@@ -244,7 +225,83 @@ export default function StoriesCarousel() {
 
   useEffect(() => {
     fetchStories();
+    
+    // Refresh stories every 30 seconds when component is active
+    const interval = setInterval(fetchStories, 30000);
+    
+    return () => clearInterval(interval);
   }, []);
+
+  // Listen for navigation events using useFocusEffect
+  useFocusEffect(
+    React.useCallback(() => {
+      const now = Date.now();
+      
+      // Check if we're coming back from story upload (within last 3 seconds)
+      if (now - lastNavigationTime < 3000) {
+        simulateUploadProgress();
+      }
+      
+      fetchStories();
+      
+      return () => {
+        // Cleanup if needed
+      };
+    }, [lastNavigationTime])
+  );
+
+  // Track navigation time when component mounts
+  useEffect(() => {
+    // Store current time as last navigation time
+    setLastNavigationTime(Date.now());
+  }, []);
+
+  // Track app state changes to detect when coming back from upload
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
+      if (
+        appState.current.match(/inactive|background/) &&
+        nextAppState === 'active'
+      ) {
+        // App has come to the foreground
+        const now = Date.now();
+        
+        // If we just came back within 3 seconds, simulate upload
+        if (now - lastNavigationTime < 3000) {
+          simulateUploadProgress();
+        }
+      }
+      
+      appState.current = nextAppState;
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [lastNavigationTime]);
+
+  // Simulate upload progress animation
+  const simulateUploadProgress = () => {
+    if (isUploading) return; // Don't start another upload if already uploading
+    
+    setIsUploading(true);
+    setUploadProgress(0);
+    
+    let progress = 0;
+    const interval = setInterval(() => {
+      progress += 10;
+      setUploadProgress(progress);
+      
+      if (progress >= 100) {
+        clearInterval(interval);
+        setTimeout(() => {
+          setIsUploading(false);
+          setUploadProgress(0);
+          fetchStories(); // Refresh stories after upload completes
+        }, 500);
+      }
+    }, 200);
+  };
 
   const handleStoryPress = (groupIndex: number, storyIndex: number) => {
     const group = storyGroups[groupIndex];
@@ -259,8 +316,6 @@ export default function StoriesCarousel() {
       return;
     }
 
-    console.log('Selected story:', story._id);
-    
     setSelectedUserIndex(groupIndex);
     setSelectedStoryIndex(storyIndex);
     
@@ -269,11 +324,6 @@ export default function StoriesCarousel() {
       const transformedStories = group.stories.map(s => 
         transformStoryToViewerFormat(s, group.userInfo)
       );
-      
-      // Log URLs for debugging
-      transformedStories.forEach((story, index) => {
-        console.log(`Story ${index} URL: ${story.mediaUrl?.substring(0, 80) || 'No URL'}`);
-      });
       
       setViewerStories(transformedStories);
       setViewerVisible(true);
@@ -311,6 +361,8 @@ export default function StoriesCarousel() {
   };
 
   const handleAddStory = () => {
+    // Update last navigation time when going to upload
+    setLastNavigationTime(Date.now());
     // Navigate to story creation screen
     router.push('/stories/upload');
   };
@@ -362,28 +414,8 @@ export default function StoriesCarousel() {
     }
   };
 
-  if (loading) {
-    return (
-      <View style={[styles.container, styles.center]}>
-        <ActivityIndicator size="small" color={isDark ? '#FFFFFF' : '#000000'} />
-      </View>
-    );
-  }
-
+  // Show error inline if there's an error
   if (error) {
-    return (
-      <View style={[styles.container, styles.center]}>
-        <Text style={[styles.errorText, { color: isDark ? '#EF4444' : '#DC2626' }]}>
-          {error}
-        </Text>
-        <TouchableOpacity onPress={fetchStories} style={styles.retryButton}>
-          <Text style={styles.retryText}>Retry</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  if (storyGroups.length === 0) {
     return (
       <View style={styles.container}>
         <View style={styles.carouselContainer}>
@@ -398,6 +430,42 @@ export default function StoriesCarousel() {
               imageUrl={user?.profile_picture_url || 'https://via.placeholder.com/400'}
               isSeen={false}
               isCurrentUser={true}
+              isUploading={isUploading}
+              uploadProgress={uploadProgress}
+              onPress={handleAddStory}
+            />
+            <View style={styles.errorContainer}>
+              <Text style={[styles.errorText, { color: isDark ? '#EF4444' : '#DC2626' }]}>
+                {error}
+              </Text>
+              <TouchableOpacity onPress={fetchStories} style={styles.retryButton}>
+                <Text style={styles.retryText}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </View>
+      </View>
+    );
+  }
+
+  // Show empty state if no stories
+  if (storyGroups.length === 0 && !loading) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.carouselContainer}>
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.scrollContent}
+          >
+            <StoryItem
+              id="your-story"
+              title="Your Story"
+              imageUrl={user?.profile_picture_url || 'https://via.placeholder.com/400'}
+              isSeen={false}
+              isCurrentUser={true}
+              isUploading={isUploading}
+              uploadProgress={uploadProgress}
               onPress={handleAddStory}
             />
             <View style={styles.noStoriesContainer}>
@@ -423,33 +491,41 @@ export default function StoriesCarousel() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
         >
-          {/* "Your Story" option */}
+          {/* "Your Story" option - ALWAYS SHOW */}
           <StoryItem
             id="your-story"
             title="Your Story"
             imageUrl={user?.profile_picture_url || 'https://via.placeholder.com/400'}
             isSeen={false}
             isCurrentUser={true}
+            isUploading={isUploading}
+            uploadProgress={uploadProgress}
             onPress={handleAddStory}
           />
 
-          {/* Other users' stories */}
-          {storyGroups.map((group, groupIndex) => {
-            const hasUnviewedStories = group.stories?.some(story => !story.hasViewed) || false;
-            
-            return (
-              <StoryItem
-                key={group.userId || groupIndex}
-                id={group.userId || `user-${groupIndex}`}
-                title={`${group.userInfo?.first_name || ''} ${group.userInfo?.last_name || ''}`.trim() || 'User'
-                }
-                subtitle={`${group.stories?.length || 0} story${group.stories?.length !== 1 ? 's' : ''}`}
-                imageUrl={group.userInfo?.profile_picture_url || 'https://via.placeholder.com/400'}
-                isSeen={!hasUnviewedStories}
-                onPress={() => handleStoryPress(groupIndex, 0)}
-              />
-            );
-          })}
+          {/* Show loading indicator for other stories while loading */}
+          {loading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="small" color={isDark ? '#FFFFFF' : '#000000'} />
+            </View>
+          ) : (
+            // Other users' stories
+            storyGroups.map((group, groupIndex) => {
+              const hasUnviewedStories = group.stories?.some(story => !story.hasViewed) || false;
+              
+              return (
+                <StoryItem
+                  key={group.userId || groupIndex}
+                  id={group.userId || `user-${groupIndex}`}
+                  title={`${group.userInfo?.first_name || ''} ${group.userInfo?.last_name || ''}`.trim() || 'User'}
+                  subtitle={`${group.stories?.length || 0} story${group.stories?.length !== 1 ? 's' : ''}`}
+                  imageUrl={cleanImageUrl(group.userInfo?.profile_picture_url) || 'https://via.placeholder.com/400'}
+                  isSeen={!hasUnviewedStories}
+                  onPress={() => handleStoryPress(groupIndex, 0)}
+                />
+              );
+            })
+          )}
         </ScrollView>
       </View>
 
@@ -464,7 +540,6 @@ export default function StoriesCarousel() {
           currentUserIndex={selectedUserIndex}
           totalUsers={storyGroups.length}
           onMarkAsSeen={async (storyId: string) => {
-            // Call your API to mark story as seen
             try {
               await storiesAPI.viewStory(storyId);
             } catch (err) {
@@ -496,15 +571,30 @@ const createStyles = (isDark: boolean) => StyleSheet.create({
       },
     }),
   },
-  center: {
+  carouselContainer: {
+    minHeight: 110,
+    justifyContent: 'center',
+  },
+  scrollContent: {
+    paddingHorizontal: 12,
+    alignItems: 'center',
+  },
+  loadingContainer: {
+    width: 84,
+    height: 110,
     justifyContent: 'center',
     alignItems: 'center',
-    minHeight: 110,
+  },
+  errorContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
   },
   errorText: {
     fontSize: 14,
     fontWeight: '500',
     marginBottom: 8,
+    textAlign: 'center',
   },
   retryButton: {
     backgroundColor: isDark ? '#3B82F6' : '#2563EB',
@@ -516,14 +606,6 @@ const createStyles = (isDark: boolean) => StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '600',
-  },
-  carouselContainer: {
-    minHeight: 110,
-    justifyContent: 'center',
-  },
-  scrollContent: {
-    paddingHorizontal: 12,
-    alignItems: 'center',
   },
   noStoriesContainer: {
     alignItems: 'center',

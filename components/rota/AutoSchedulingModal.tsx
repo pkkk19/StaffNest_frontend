@@ -1,12 +1,13 @@
-// Update src/components/rota/AutoSchedulingModal.tsx
+// src/components/rota/AutoSchedulingModal.tsx - UPDATED WITH PREVIEW FIXES
 import { useState, useEffect } from 'react';
-import { View, Text, Modal, StyleSheet, ScrollView, Alert } from 'react-native';
-import { X, Cpu, Zap, Calendar, Users, AlertCircle, Clock, CheckCircle, Settings } from 'lucide-react-native';
+import { View, Text, Modal, StyleSheet, ScrollView, Alert, TouchableOpacity, Platform } from 'react-native';
+import { X, Cpu, Zap, Calendar, CheckCircle, Clock, Loader2, Eye } from 'lucide-react-native';
 import ForceTouchable from '@/components/ForceTouchable';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAutoSchedule } from '@/hooks/useAutoSchedule';
-import { AutoScheduleRequest } from '@/app/types/auto-scheduling.types';
+import { AutoScheduleRequest, ScheduleAlgorithm, SchedulePeriod } from '@/app/types/auto-scheduling.types';
+import SchedulePreview from './SchedulePreview';
 
 interface AutoSchedulingModalProps {
   visible: boolean;
@@ -14,63 +15,45 @@ interface AutoSchedulingModalProps {
   onScheduleGenerated: (schedule: any) => void;
 }
 
-// Valid algorithm values
-type AlgorithmValue = 'fair_share' | 'round_robin' | 'coverage_first' | 'preference_based';
-type PeriodValue = 'day' | 'week' | 'month';
-
 interface AlgorithmOption {
-  value: AlgorithmValue;
+  value: ScheduleAlgorithm;
   label: string;
   description: string;
-  best_for: string[];
-  color?: string;
+  color: string;
+  icon: React.ComponentType<any>;
 }
 
-// Default algorithms
-const defaultAlgorithms: AlgorithmOption[] = [
-  { 
-    value: 'fair_share', 
-    label: 'Fair Share', 
-    description: 'Balances workload evenly among staff', 
-    best_for: ['Balancing workload', 'Team morale', 'Long-term schedules'],
-    color: '#10B981' 
+interface PeriodOption {
+  value: SchedulePeriod;
+  label: string;
+  description: string;
+}
+
+// Algorithm options
+const algorithmOptions: AlgorithmOption[] = [
+  {
+    value: 'simple',
+    label: 'Simple Assignment',
+    description: 'Quickly fill shifts with first available staff',
+    color: '#3B82F6', // Blue
+    icon: Zap,
   },
-  { 
-    value: 'round_robin', 
-    label: 'Round Robin', 
-    description: 'Simple rotation among available staff', 
-    best_for: ['Simple schedules', 'Teams with similar skills', 'Basic requirements'],
-    color: '#3B82F6' 
-  },
-  { 
-    value: 'coverage_first', 
-    label: 'Coverage First', 
-    description: 'Ensures all shifts are filled first', 
-    best_for: ['Critical shifts', 'Emergency coverage', 'Minimum staffing requirements'],
-    color: '#F59E0B' 
-  },
-  { 
-    value: 'preference_based', 
-    label: 'Preference Based', 
-    description: 'Prioritizes staff preferences when assigning shifts', 
-    best_for: ['Staff satisfaction', 'Flexible workplaces', 'Retention-focused teams'],
-    color: '#8B5CF6' 
+  {
+    value: 'balanced',
+    label: 'Balanced Workload',
+    description: 'Distribute shifts fairly among all staff',
+    color: '#10B981', // Green
+    icon: Cpu,
   },
 ];
 
-// Color mapping for algorithms
-const algorithmColors: Record<AlgorithmValue | string, string> = {
-  'fair_share': '#10B981',
-  'round_robin': '#3B82F6',
-  'coverage_first': '#F59E0B',
-  'preference_based': '#8B5CF6',
-  'default': '#6B7280',
-};
-
-const periodOptions = [
-  { value: 'day' as const, label: 'Today', description: 'Generate schedule for today' },
-  { value: 'week' as const, label: 'This Week', description: 'Generate schedule for this week' },
-  { value: 'month' as const, label: 'This Month', description: 'Generate schedule for this month' },
+// Period options
+const periodOptions: PeriodOption[] = [
+  { value: 'today', label: 'Today', description: 'Schedule for today only' },
+  { value: 'tomorrow', label: 'Tomorrow', description: 'Schedule for tomorrow only' },
+  { value: 'this_week', label: 'This Week', description: 'Schedule for Monday to Sunday' },
+  { value: 'this_month', label: 'This Month', description: 'Schedule for the current month' },
+  { value: 'custom', label: 'Custom Range', description: 'Select specific dates' },
 ];
 
 export default function AutoSchedulingModal({
@@ -80,71 +63,109 @@ export default function AutoSchedulingModal({
 }: AutoSchedulingModalProps) {
   const { theme } = useTheme();
   const { user } = useAuth();
-  const { generateSchedule, previewSchedule, loading, error, fetchAlgorithms, algorithms } = useAutoSchedule();
+  const { generateSchedule, previewSchedule, loading, error } = useAutoSchedule();
   const styles = createStyles(theme);
 
-  const [options, setOptions] = useState({
-    period: 'week' as PeriodValue,
-    algorithm: 'fair_share' as AlgorithmValue,
-    start_date: undefined as string | undefined,
-    end_date: undefined as string | undefined,
-    fill_open_only: false,
-    consider_preferences: true,
-    ensure_legal_compliance: true,
-    optimize_existing: false,
+  const [options, setOptions] = useState<{
+    period: SchedulePeriod;
+    algorithm: ScheduleAlgorithm;
+    start_date?: string;
+    end_date?: string;
+    auto_create_shifts: boolean;
+  }>({
+    period: 'this_week',
+    algorithm: 'balanced',
     auto_create_shifts: false,
-    balance_workload: true,
   });
 
-  useEffect(() => {
-    if (visible) {
-      fetchAlgorithms();
-    }
-  }, [visible, fetchAlgorithms]);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
+  
+  // New states for preview modal
+  const [previewData, setPreviewData] = useState<any>(null);
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
 
-  const handleGenerateSchedule = async (autoCreate: boolean = false) => {
+  useEffect(() => {
+    if (options.period === 'custom' && !showDatePicker) {
+      setShowDatePicker(true);
+    }
+  }, [options.period]);
+
+  const handleGeneratePreview = async () => {
     if (!user?.company_id) {
       Alert.alert('Error', 'No company assigned');
       return;
     }
 
     try {
-      // Create request with proper typing - match AutoScheduleRequest type
-      const scheduleOptions: AutoScheduleRequest = {
+      setIsPreviewLoading(true);
+      
+      // Prepare request data
+      const requestData: AutoScheduleRequest = {
         period: options.period,
         algorithm: options.algorithm,
-        start_date: options.start_date,
-        end_date: options.end_date,
-        fill_open_only: options.fill_open_only,
-        consider_preferences: options.consider_preferences,
-        ensure_legal_compliance: options.ensure_legal_compliance,
-        optimize_existing: options.optimize_existing,
-        auto_create_shifts: autoCreate,
-        balance_workload: options.balance_workload,
+        auto_create_shifts: false, // Always false for preview
       };
 
-      let result;
-      if (autoCreate) {
-        result = await generateSchedule(scheduleOptions);
-      } else {
-        // For preview, remove auto_create_shifts from the request
-        const { auto_create_shifts, ...previewOptions } = scheduleOptions;
-        result = await previewSchedule(previewOptions);
+      // Add dates for custom period
+      if (options.period === 'custom') {
+        if (!customStartDate || !customEndDate) {
+          Alert.alert('Error', 'Please select start and end dates for custom period');
+          setIsPreviewLoading(false);
+          return;
+        }
+        requestData.start_date = customStartDate;
+        requestData.end_date = customEndDate;
       }
 
+      const result = await previewSchedule(requestData);
+      setPreviewData(result);
+      setShowPreviewModal(true);
+      
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Failed to generate preview');
+    } finally {
+      setIsPreviewLoading(false);
+    }
+  };
+
+  const handleGenerateSchedule = async () => {
+    if (!user?.company_id) {
+      Alert.alert('Error', 'No company assigned');
+      return;
+    }
+
+    try {
+      // Prepare request data
+      const requestData: AutoScheduleRequest = {
+        period: options.period,
+        algorithm: options.algorithm,
+        auto_create_shifts: true,
+      };
+
+      // Add dates for custom period
+      if (options.period === 'custom') {
+        if (!customStartDate || !customEndDate) {
+          Alert.alert('Error', 'Please select start and end dates for custom period');
+          return;
+        }
+        requestData.start_date = customStartDate;
+        requestData.end_date = customEndDate;
+      }
+
+      const result = await generateSchedule(requestData);
+      
       Alert.alert(
         'Success',
-        autoCreate 
-          ? `Schedule generated and ${result.created_shifts?.length || 0} shifts created`
-          : 'Schedule generated successfully. Review before creating shifts.',
+        `Schedule created successfully! ${result.stats.filled_shifts} shifts assigned.`,
         [
           {
             text: 'OK',
             onPress: () => {
               onScheduleGenerated(result);
-              if (!autoCreate) {
-                onClose();
-              }
+              onClose();
             },
           },
         ]
@@ -154,269 +175,325 @@ export default function AutoSchedulingModal({
     }
   };
 
-  const optionItems = [
-    {
-      id: 'fill_open_only',
-      icon: Users,
-      label: 'Fill Open Shifts Only',
-      description: 'Only fill shifts that are currently unassigned',
-      color: '#8B5CF6',
-    },
-    {
-      id: 'consider_preferences',
-      icon: CheckCircle,
-      label: 'Consider Preferences',
-      description: 'Respect staff shift preferences when possible',
-      color: '#10B981',
-    },
-    {
-      id: 'ensure_legal_compliance',
-      icon: AlertCircle,
-      label: 'Legal Compliance',
-      description: 'Ensure breaks and maximum hours are respected',
-      color: '#F59E0B',
-    },
-    {
-      id: 'optimize_existing',
-      icon: Zap,
-      label: 'Optimize Existing',
-      description: 'Improve existing schedule instead of creating new',
-      color: '#3B82F6',
-    },
-    {
-      id: 'balance_workload',
-      icon: Settings,
-      label: 'Balance Workload',
-      description: 'Distribute hours evenly among staff',
-      color: '#EC4899',
-    },
-  ];
-
-  // Filter and format algorithms from hook
-  const displayAlgorithms = (() => {
-    if (algorithms.length > 0) {
-      // Filter to only include valid algorithm values
-      return algorithms
-        .filter(algo => 
-          algo.value === 'fair_share' || 
-          algo.value === 'round_robin' || 
-          algo.value === 'coverage_first' || 
-          algo.value === 'preference_based'
-        )
-        .map(algo => {
-          // Map the algorithm data from backend to our interface
-          const baseAlgo = defaultAlgorithms.find(a => a.value === algo.value) || defaultAlgorithms[0];
-          return {
-            value: algo.value as AlgorithmValue,
-            label: baseAlgo.label,
-            description: baseAlgo.description,
-            best_for: baseAlgo.best_for,
-            color: algorithmColors[algo.value] || algorithmColors.default
-          };
-        });
+  const handleFillOpenShifts = async () => {
+    if (!user?.company_id) {
+      Alert.alert('Error', 'No company assigned');
+      return;
     }
-    return defaultAlgorithms;
-  })();
 
-  // Get color for an algorithm
-  const getAlgorithmColor = (algorithmValue: string): string => {
-    return algorithmColors[algorithmValue as AlgorithmValue] || algorithmColors.default;
+    try {
+      const requestData: AutoScheduleRequest = {
+        period: options.period,
+        algorithm: 'balanced',
+        auto_create_shifts: true,
+      };
+
+      const result = await generateSchedule(requestData);
+      
+      Alert.alert(
+        'Success',
+        `Filled ${result.stats.filled_shifts} open shifts`,
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              onScheduleGenerated(result);
+            },
+          },
+        ]
+      );
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Failed to fill open shifts');
+    }
+  };
+
+  const handleCreateFromPreview = async () => {
+    if (!previewData) return;
+    
+    try {
+      const requestData: AutoScheduleRequest = {
+        period: options.period,
+        algorithm: options.algorithm,
+        auto_create_shifts: true,
+        start_date: options.period === 'custom' ? customStartDate : undefined,
+        end_date: options.period === 'custom' ? customEndDate : undefined,
+      };
+
+      const result = await generateSchedule(requestData);
+      setShowPreviewModal(false);
+      setPreviewData(null);
+      
+      Alert.alert(
+        'Success',
+        `Created ${result.stats.filled_shifts} shifts successfully!`,
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              onScheduleGenerated(result);
+              onClose();
+            },
+          },
+        ]
+      );
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Failed to create schedule');
+    }
+  };
+
+  const handleClosePreview = () => {
+    setShowPreviewModal(false);
+    setPreviewData(null);
+  };
+
+  const renderAlgorithmOption = (option: AlgorithmOption) => {
+    const Icon = option.icon;
+    const isActive = options.algorithm === option.value;
+    
+    return (
+      <TouchableOpacity
+        key={option.value}
+        style={[styles.algorithmOption, isActive && styles.algorithmOptionActive]}
+        onPress={() => setOptions(prev => ({ ...prev, algorithm: option.value }))}
+        activeOpacity={0.7}
+      >
+        <View style={[styles.algorithmIcon, { backgroundColor: option.color + '20' }]}>
+          <Icon size={20} color={option.color} />
+        </View>
+        <Text style={[styles.algorithmLabel, isActive && styles.algorithmLabelActive]}>
+          {option.label}
+        </Text>
+        <Text style={styles.algorithmDescription}>{option.description}</Text>
+        {isActive && (
+          <View style={[styles.activeIndicator, { backgroundColor: option.color }]} />
+        )}
+      </TouchableOpacity>
+    );
+  };
+
+  const renderPeriodOption = (option: PeriodOption) => {
+    const isActive = options.period === option.value;
+    
+    return (
+      <TouchableOpacity
+        key={option.value}
+        style={[styles.periodOption, isActive && styles.periodOptionActive]}
+        onPress={() => setOptions(prev => ({ ...prev, period: option.value }))}
+        activeOpacity={0.7}
+      >
+        <View style={styles.periodContent}>
+          <Calendar size={16} color={isActive ? '#FFFFFF' : (theme === 'dark' ? '#9CA3AF' : '#6B7280')} />
+          <Text style={[styles.periodLabel, isActive && styles.periodLabelActive]}>
+            {option.label}
+          </Text>
+        </View>
+        <Text style={styles.periodDescription}>{option.description}</Text>
+      </TouchableOpacity>
+    );
   };
 
   return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      presentationStyle="pageSheet"
-      onRequestClose={onClose}
-    >
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <View style={styles.headerContent}>
-            <Cpu size={24} color={theme === 'dark' ? '#10B981' : '#059669'} />
-            <View style={styles.headerText}>
-              <Text style={styles.title}>Auto Schedule Generator</Text>
-              <Text style={styles.subtitle}>Algorithm-based scheduling</Text>
+    <>
+      {/* Main Auto Scheduling Modal */}
+      <Modal
+        visible={visible && !showPreviewModal} // Hide when preview is open
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={onClose}
+      >
+        <View style={styles.container}>
+          {/* Header */}
+          <View style={styles.header}>
+            <View style={styles.headerContent}>
+              <Cpu size={24} color={theme === 'dark' ? '#10B981' : '#059669'} />
+              <View style={styles.headerText}>
+                <Text style={styles.title}>Auto Schedule</Text>
+                <Text style={styles.subtitle}>Generate schedules automatically</Text>
+              </View>
             </View>
-          </View>
-          <ForceTouchable onPress={onClose} style={styles.closeButton}>
-            <X size={24} color={theme === 'dark' ? '#F9FAFB' : '#374151'} />
-          </ForceTouchable>
-        </View>
-
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-          {/* Algorithm Selection */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Settings size={20} color={theme === 'dark' ? '#9CA3AF' : '#6B7280'} />
-              <Text style={styles.sectionTitle}>Scheduling Algorithm</Text>
-            </View>
-            
-            <View style={styles.algorithmGrid}>
-              {displayAlgorithms.map((algo) => {
-                const isActive = options.algorithm === algo.value;
-                const color = algo.color || getAlgorithmColor(algo.value);
-                
-                return (
-                  <ForceTouchable
-                    key={algo.value}
-                    style={[styles.algorithmOption, isActive && styles.algorithmOptionActive]}
-                    onPress={() => setOptions(prev => ({ ...prev, algorithm: algo.value }))}
-                  >
-                    <View style={[styles.algorithmIcon, { backgroundColor: color + '20' }]}>
-                      <Cpu size={20} color={color} />
-                    </View>
-                    <Text style={[styles.algorithmLabel, isActive && styles.algorithmLabelActive]}>
-                      {algo.label}
-                    </Text>
-                    <Text style={styles.algorithmDescription}>{algo.description}</Text>
-                    
-                    {/* Best for chips */}
-                    {algo.best_for.length > 0 && (
-                      <View style={styles.bestForContainer}>
-                        {algo.best_for.slice(0, 2).map((item: string, index: number) => (
-                          <View key={index} style={[styles.bestForChip, { backgroundColor: color + '20' }]}>
-                            <Text style={[styles.bestForText, { color }]} numberOfLines={1}>
-                              {item}
-                            </Text>
-                          </View>
-                        ))}
-                      </View>
-                    )}
-                  </ForceTouchable>
-                );
-              })}
-            </View>
+            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+              <X size={24} color={theme === 'dark' ? '#F9FAFB' : '#374151'} />
+            </TouchableOpacity>
           </View>
 
-          {/* Period Selection */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Calendar size={20} color={theme === 'dark' ? '#9CA3AF' : '#6B7280'} />
-              <Text style={styles.sectionTitle}>Schedule Period</Text>
-            </View>
-            
-            <View style={styles.periodGrid}>
-              {periodOptions.map((period) => {
-                const isActive = options.period === period.value;
-                
-                return (
-                  <ForceTouchable
-                    key={period.value}
-                    style={[styles.periodOption, isActive && styles.periodOptionActive]}
-                    onPress={() => setOptions(prev => ({ 
-                      ...prev, 
-                      period: period.value,
-                      start_date: undefined,
-                      end_date: undefined
-                    }))}
-                  >
-                    <Text style={[styles.periodLabel, isActive && styles.periodLabelActive]}>
-                      {period.label}
-                    </Text>
-                    <Text style={styles.periodDescription}>{period.description}</Text>
-                  </ForceTouchable>
-                );
-              })}
-            </View>
-          </View>
-
-          {/* Options */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Zap size={20} color={theme === 'dark' ? '#9CA3AF' : '#6B7280'} />
-              <Text style={styles.sectionTitle}>Scheduling Options</Text>
-            </View>
-            
-            {optionItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = options[item.id as keyof typeof options] as boolean;
+          <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+            {/* Period Selection */}
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Calendar size={20} color={theme === 'dark' ? '#9CA3AF' : '#6B7280'} />
+                <Text style={styles.sectionTitle}>Time Period</Text>
+              </View>
               
-              return (
-                <ForceTouchable
-                  key={item.id}
-                  style={[styles.optionItem, isActive && styles.optionItemActive]}
-                  onPress={() => setOptions(prev => ({ 
-                    ...prev, 
-                    [item.id]: !prev[item.id as keyof typeof options] 
-                  }))}
-                >
-                  <View style={[styles.optionIcon, { backgroundColor: item.color + '20' }]}>
-                    <Icon size={20} color={item.color} />
-                  </View>
-                  
-                  <View style={styles.optionContent}>
-                    <Text style={[styles.optionLabel, isActive && styles.optionLabelActive]}>
-                      {item.label}
-                    </Text>
-                    <Text style={styles.optionDescription}>
-                      {item.description}
-                    </Text>
-                  </View>
-                  
-                  <View style={[
-                    styles.optionToggle,
-                    isActive && { backgroundColor: item.color }
-                  ]}>
-                    <View style={[
-                      styles.optionToggleKnob,
-                      isActive && styles.optionToggleKnobActive
-                    ]} />
-                  </View>
-                </ForceTouchable>
-              );
-            })}
-          </View>
+              <View style={styles.periodGrid}>
+                {periodOptions.map(renderPeriodOption)}
+              </View>
 
-          {/* Info Box */}
-          <View style={styles.infoBox}>
-            <Cpu size={24} color={theme === 'dark' ? '#10B981' : '#059669'} />
-            <View style={styles.infoContent}>
-              <Text style={styles.infoTitle}>How Auto Scheduling Works</Text>
-              <Text style={styles.infoText}>
-                The system uses deterministic algorithms to analyze staff availability, 
-                qualifications, preferences, and legal requirements to create an optimal 
-                schedule with predictable, consistent results.
+              {options.period === 'custom' && (
+                <View style={styles.customDateContainer}>
+                  <View style={styles.dateInputGroup}>
+                    <Text style={styles.dateLabel}>Start Date</Text>
+                    <TouchableOpacity style={styles.dateInput}>
+                      <Text style={styles.dateInputText}>
+                        {customStartDate || 'Select date'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.dateInputGroup}>
+                    <Text style={styles.dateLabel}>End Date</Text>
+                    <TouchableOpacity style={styles.dateInput}>
+                      <Text style={styles.dateInputText}>
+                        {customEndDate || 'Select date'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+            </View>
+
+            {/* Algorithm Selection */}
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Cpu size={20} color={theme === 'dark' ? '#9CA3AF' : '#6B7280'} />
+                <Text style={styles.sectionTitle}>Scheduling Method</Text>
+              </View>
+              
+              <View style={styles.algorithmGrid}>
+                {algorithmOptions.map(renderAlgorithmOption)}
+              </View>
+            </View>
+
+            {/* Info Section */}
+            <View style={styles.infoSection}>
+              <CheckCircle size={20} color={theme === 'dark' ? '#10B981' : '#059669'} />
+              <View style={styles.infoContent}>
+                <Text style={styles.infoTitle}>What this does:</Text>
+                <Text style={styles.infoText}>
+                  • Generates shifts based on your role patterns{'\n'}
+                  • Assigns qualified staff automatically{'\n'}
+                  • Respects time-off and availability{'\n'}
+                  • Ensures fair workload distribution
+                </Text>
+              </View>
+            </View>
+          </ScrollView>
+
+          {/* Footer Actions */}
+          <View style={styles.footer}>
+            <TouchableOpacity 
+              onPress={handleFillOpenShifts} 
+              style={styles.secondaryButton}
+              disabled={loading}
+            >
+              <Zap size={20} color="#3B82F6" />
+              <Text style={styles.secondaryButtonText}>
+                {loading ? 'Processing...' : 'Fill Open Shifts'}
               </Text>
+            </TouchableOpacity>
+            
+            <View style={styles.primaryActions}>
+              <TouchableOpacity 
+                onPress={handleGeneratePreview} 
+                style={styles.previewButton}
+                disabled={loading || isPreviewLoading}
+              >
+                {isPreviewLoading ? (
+                  <Loader2 size={20} color="#FFFFFF" />
+                ) : (
+                  <Eye size={20} color="#FFFFFF" />
+                )}
+                <Text style={styles.previewButtonText}>
+                  {isPreviewLoading ? 'Generating...' : 'Preview Schedule'}
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                onPress={handleGenerateSchedule} 
+                style={styles.generateButton}
+                disabled={loading}
+              >
+                {loading ? (
+                  <Loader2 size={20} color="#FFFFFF" />
+                ) : (
+                  <Zap size={20} color="#FFFFFF" />
+                )}
+                <Text style={styles.generateButtonText}>
+                  {loading ? 'Creating...' : 'Create Now'}
+                </Text>
+              </TouchableOpacity>
             </View>
           </View>
-        </ScrollView>
+        </View>
+      </Modal>
 
-        <View style={styles.footer}>
-          <ForceTouchable 
-            onPress={onClose} 
-            style={styles.cancelButton}
-            disabled={loading}
-          >
-            <Text style={styles.cancelButtonText}>Cancel</Text>
-          </ForceTouchable>
-          
-          <View style={styles.actionButtons}>
-            <ForceTouchable 
-              onPress={() => handleGenerateSchedule(false)} 
-              style={styles.previewButton}
+      {/* Schedule Preview Modal */}
+      <Modal
+        visible={showPreviewModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={handleClosePreview}
+      >
+        <View style={[styles.container, { paddingTop: Platform.OS === 'ios' ? 60 : 20 }]}>
+          {/* Preview Header */}
+          <View style={styles.header}>
+            <View style={styles.headerContent}>
+              <Eye size={24} color={theme === 'dark' ? '#3B82F6' : '#2563EB'} />
+              <View style={styles.headerText}>
+                <Text style={styles.title}>Schedule Preview</Text>
+                {previewData && (
+                  <Text style={styles.subtitle}>
+                    Preview • {previewData.stats.filled_shifts} of {previewData.stats.total_shifts} shifts filled ({previewData.stats.coverage_percentage}% coverage)
+                  </Text>
+                )}
+              </View>
+            </View>
+            <TouchableOpacity 
+              onPress={handleClosePreview} 
+              style={styles.closeButton}
+            >
+              <X size={24} color={theme === 'dark' ? '#F9FAFB' : '#374151'} />
+            </TouchableOpacity>
+          </View>
+
+          {/* Preview Content */}
+          {previewData ? (
+            <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+              <SchedulePreview schedule={previewData} />
+            </ScrollView>
+          ) : (
+            <View style={styles.loadingContainer}>
+              <Loader2 size={40} color={theme === 'dark' ? '#3B82F6' : '#2563EB'} style={styles.loadingSpinner} />
+              <Text style={styles.loadingText}>Generating preview...</Text>
+            </View>
+          )}
+
+          {/* Preview Actions */}
+          <View style={styles.footer}>
+            <TouchableOpacity 
+              onPress={handleClosePreview} 
+              style={styles.cancelButton}
               disabled={loading}
             >
-              <Clock size={20} color="#3B82F6" />
-              <Text style={styles.previewButtonText}>
-                {loading ? 'Generating...' : 'Preview'}
-              </Text>
-            </ForceTouchable>
+              <Text style={styles.cancelButtonText}>Back to Settings</Text>
+            </TouchableOpacity>
             
-            <ForceTouchable 
-              onPress={() => handleGenerateSchedule(true)} 
-              style={styles.generateButton}
+            <TouchableOpacity 
+              onPress={handleCreateFromPreview} 
+              style={styles.confirmButton}
               disabled={loading}
             >
-              <Zap size={20} color="#FFFFFF" />
-              <Text style={styles.generateButtonText}>
-                {loading ? 'Creating...' : 'Create Shifts'}
+              {loading ? (
+                <Loader2 size={20} color="#FFFFFF" />
+              ) : (
+                <Zap size={20} color="#FFFFFF" />
+              )}
+              <Text style={styles.confirmButtonText}>
+                {loading ? 'Creating...' : 'Create This Schedule'}
               </Text>
-            </ForceTouchable>
+            </TouchableOpacity>
           </View>
         </View>
-      </View>
-    </Modal>
+      </Modal>
+    </>
   );
 }
 
@@ -428,15 +505,14 @@ const createStyles = (theme: string) => StyleSheet.create({
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     padding: 20,
-    paddingTop: 60,
+    paddingTop: Platform.OS === 'ios' ? 60 : 20,
     backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: theme === 'dark' ? '#374151' : '#E5E7EB',
   },
   headerContent: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
@@ -448,24 +524,23 @@ const createStyles = (theme: string) => StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
     color: theme === 'dark' ? '#F9FAFB' : '#111827',
-    marginBottom: 2,
   },
   subtitle: {
     fontSize: 14,
     color: theme === 'dark' ? '#9CA3AF' : '#6B7280',
+    marginTop: 2,
   },
   closeButton: {
     padding: 8,
     borderRadius: 8,
     backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6',
-    marginTop: -8,
   },
   content: {
     flex: 1,
-    padding: 20,
   },
   section: {
-    marginBottom: 24,
+    margin: 20,
+    marginBottom: 16,
     backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF',
     borderRadius: 12,
     padding: 16,
@@ -483,29 +558,83 @@ const createStyles = (theme: string) => StyleSheet.create({
     fontWeight: '600',
     color: theme === 'dark' ? '#F9FAFB' : '#111827',
   },
+  periodGrid: {
+    gap: 8,
+  },
+  periodOption: {
+    padding: 12,
+    backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  periodOptionActive: {
+    backgroundColor: '#3B82F6',
+    borderColor: '#2563EB',
+  },
+  periodContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  periodLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: theme === 'dark' ? '#F9FAFB' : '#111827',
+  },
+  periodLabelActive: {
+    color: '#FFFFFF',
+  },
+  periodDescription: {
+    fontSize: 12,
+    color: theme === 'dark' ? '#9CA3AF' : '#6B7280',
+  },
+  customDateContainer: {
+    marginTop: 16,
+    gap: 12,
+  },
+  dateInputGroup: {
+    gap: 4,
+  },
+  dateLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: theme === 'dark' ? '#9CA3AF' : '#6B7280',
+  },
+  dateInput: {
+    padding: 12,
+    backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme === 'dark' ? '#4B5563' : '#D1D5DB',
+  },
+  dateInputText: {
+    fontSize: 14,
+    color: theme === 'dark' ? '#F9FAFB' : '#111827',
+  },
   algorithmGrid: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: 12,
   },
   algorithmOption: {
     flex: 1,
-    minWidth: '45%',
     padding: 16,
     backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6',
     borderRadius: 12,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: 'transparent',
     alignItems: 'center',
+    position: 'relative',
   },
   algorithmOptionActive: {
-    backgroundColor: theme === 'dark' ? '#065F46' : '#D1FAE5',
-    borderColor: theme === 'dark' ? '#10B981' : '#059669',
+    backgroundColor: theme === 'dark' ? '#1E3A8A' : '#DBEAFE',
+    borderColor: '#3B82F6',
   },
   algorithmIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 12,
@@ -518,121 +647,31 @@ const createStyles = (theme: string) => StyleSheet.create({
     textAlign: 'center',
   },
   algorithmLabelActive: {
-    color: theme === 'dark' ? '#10B981' : '#059669',
+    color: '#3B82F6',
   },
   algorithmDescription: {
-    fontSize: 11,
+    fontSize: 12,
     color: theme === 'dark' ? '#9CA3AF' : '#6B7280',
     textAlign: 'center',
-    lineHeight: 14,
-    marginBottom: 8,
+    lineHeight: 16,
   },
-  bestForContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: 4,
-    marginTop: 4,
-  },
-  bestForChip: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+  activeIndicator: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 8,
+    height: 8,
     borderRadius: 4,
   },
-  bestForText: {
-    fontSize: 9,
-    fontWeight: '500',
-  },
-  periodGrid: {
-    gap: 12,
-  },
-  periodOption: {
-    padding: 16,
-    backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'transparent',
-  },
-  periodOptionActive: {
-    backgroundColor: theme === 'dark' ? '#2563EB' : '#3B82F6',
-    borderColor: theme === 'dark' ? '#3B82F6' : '#2563EB',
-  },
-  periodLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: theme === 'dark' ? '#F9FAFB' : '#111827',
-    marginBottom: 4,
-  },
-  periodLabelActive: {
-    color: '#FFFFFF',
-  },
-  periodDescription: {
-    fontSize: 12,
-    color: theme === 'dark' ? '#9CA3AF' : '#6B7280',
-  },
-  optionItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-    backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6',
-    borderRadius: 8,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: 'transparent',
-  },
-  optionItemActive: {
-    backgroundColor: theme === 'dark' ? '#1E3A8A' : '#DBEAFE',
-    borderColor: theme === 'dark' ? '#3B82F6' : '#3B82F6',
-  },
-  optionIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  optionContent: {
-    flex: 1,
-  },
-  optionLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: theme === 'dark' ? '#F9FAFB' : '#111827',
-    marginBottom: 2,
-  },
-  optionLabelActive: {
-    color: theme === 'dark' ? '#3B82F6' : '#1E40AF',
-  },
-  optionDescription: {
-    fontSize: 12,
-    color: theme === 'dark' ? '#9CA3AF' : '#6B7280',
-  },
-  optionToggle: {
-    width: 44,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: theme === 'dark' ? '#4B5563' : '#D1D5DB',
-    padding: 2,
-  },
-  optionToggleKnob: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: '#FFFFFF',
-    transform: [{ translateX: 0 }],
-  },
-  optionToggleKnobActive: {
-    transform: [{ translateX: 20 }],
-  },
-  infoBox: {
+  infoSection: {
+    margin: 20,
+    marginBottom: 24,
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 12,
     padding: 16,
     backgroundColor: theme === 'dark' ? '#065F46' : '#D1FAE5',
     borderRadius: 12,
-    marginBottom: 24,
   },
   infoContent: {
     flex: 1,
@@ -641,7 +680,7 @@ const createStyles = (theme: string) => StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: theme === 'dark' ? '#D1FAE5' : '#065F46',
-    marginBottom: 4,
+    marginBottom: 6,
   },
   infoText: {
     fontSize: 12,
@@ -650,10 +689,71 @@ const createStyles = (theme: string) => StyleSheet.create({
   },
   footer: {
     padding: 20,
-    paddingBottom: 40,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 20,
     backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF',
     borderTopWidth: 1,
     borderTopColor: theme === 'dark' ? '#374151' : '#E5E7EB',
+    gap: 12,
+  },
+  secondaryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    padding: 16,
+    backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6',
+    borderRadius: 8,
+  },
+  secondaryButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#3B82F6',
+  },
+  primaryActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  previewButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    padding: 16,
+    backgroundColor: '#3B82F6',
+    borderRadius: 8,
+  },
+  previewButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  generateButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    padding: 16,
+    backgroundColor: '#10B981',
+    borderRadius: 8,
+  },
+  generateButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingSpinner: {
+    marginBottom: 16,
+  },
+  loadingText: {
+    fontSize: 16,
+    color: theme === 'dark' ? '#9CA3AF' : '#6B7280',
   },
   cancelButton: {
     padding: 16,
@@ -667,27 +767,7 @@ const createStyles = (theme: string) => StyleSheet.create({
     fontWeight: '600',
     color: theme === 'dark' ? '#F9FAFB' : '#374151',
   },
-  actionButtons: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  previewButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    padding: 16,
-    backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6',
-    borderRadius: 8,
-  },
-  previewButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#3B82F6',
-  },
-  generateButton: {
-    flex: 2,
+  confirmButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -696,7 +776,7 @@ const createStyles = (theme: string) => StyleSheet.create({
     backgroundColor: '#10B981',
     borderRadius: 8,
   },
-  generateButtonText: {
+  confirmButtonText: {
     fontSize: 16,
     fontWeight: '600',
     color: '#FFFFFF',

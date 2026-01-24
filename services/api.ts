@@ -4,15 +4,18 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {Role, CreateRoleDto, UpdateRoleDto} from '../app/types/roles';
 
 // At the top of your file
-const USE_NGROK = false; // Set to false for local development
+const USE_NGROK = false; // Set to true for ngrok, false for railway
 
 const getBaseURL = () => {
   if (USE_NGROK) {
-    return 'https://a07d798a0150.ngrok-free.app';
+    return 'https://a7c6573c4ee9.ngrok-free.app';
   } else {
-    return `https://staffnest-backend-production.up.railway.app`;
+    return 'https://staffnest-backend-production.up.railway.app';
   }
 };
+
+// Export BASE_URL for socket service to use
+export const BASE_URL = getBaseURL();
 
 interface Story {
   _id: string;
@@ -77,8 +80,6 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => {
     console.log('✅ API Response:', response.status, response.config.url);
-    console.log('📊 Full Response:', JSON.stringify(response, null, 2));
-    console.log('📊 Response Data:', response.data);
     return response;
   },
   async (error) => {
@@ -88,7 +89,6 @@ api.interceptors.response.use(
     if (error.response) {
       console.error('📊 Response status:', error.response.status);
       console.error('📊 Response data:', error.response.data);
-      console.error('📊 Response headers:', error.response.headers);
 
       // Handle token expiration (401 Unauthorized)
       if (error.response.status === 401) {
@@ -98,12 +98,7 @@ api.interceptors.response.use(
           // Remove the expired token
           await AsyncStorage.removeItem('authaccess_token');
 
-          // You can also emit an event or use a global state to notify the app
-          // For now, we'll just log and let the component handle the redirect
           console.log('🔑 Token removed due to expiration');
-
-          // You could also show an alert here if needed
-          // Alert.alert('Session Expired', 'Please login again');
         } catch (storageError) {
           console.error('Error removing auth token:', storageError);
         }
@@ -369,6 +364,10 @@ export const staffAPI = {
   // Get specific staff member
   getStaffMember: (id: string) => api.get(`/users/${id}`),
 
+  // Add batch user fetching for chat participants
+  getUsersBatch: (userIds: string[]) => 
+    api.post('/users/batch', { userIds }),
+
   // Update staff member
   updateStaff: (id: string, staffData: any) => api.patch(`/users/${id}`, staffData),
 
@@ -389,8 +388,13 @@ export const chatAPI = {
     api.get(`/chat/conversations/${conversationId}/messages?page=${page}`),
 
   // Send a message
-  sendMessage: (conversationId: string, content: string) =>
-    api.post(`/chat/conversations/${conversationId}/messages`, { content }),
+  sendMessage: (conversationId: string, content: string, isEncrypted?: boolean, messageHash?: string, replyTo?: string) =>
+    api.post(`/chat/conversations/${conversationId}/messages`, { 
+      content, 
+      isEncrypted: isEncrypted || false, 
+      messageHash,
+      replyTo 
+    }),
 
   // Mark messages as read
   markAsRead: (conversationId: string, messageIds: string[]) =>
@@ -469,8 +473,7 @@ export const rolesAPI = {
 
 
 export const payslipAPI = {
-
-   createPayslip: (data: any) => api.post('/payslips/generate', data),
+  createPayslip: (data: any) => api.post('/payslips/generate', data),
   // Get payslips with filters
   getPayslips: (filters?: {
     employee_id?: string;
@@ -505,7 +508,7 @@ export const payslipAPI = {
   }) => api.post('/payslips/bulk-generate', data),
 
   // Update payslip
-updatePayslip: (id: string, data: any) => api.put(`/payslips/${id}`, data),
+  updatePayslip: (id: string, data: any) => api.put(`/payslips/${id}`, data),
 
   // Approve payslip
   approvePayslip: (id: string) => api.post(`/payslips/${id}/approve`),
@@ -529,8 +532,6 @@ updatePayslip: (id: string, data: any) => api.put(`/payslips/${id}`, data),
   // Delete payslip
   deletePayslip: (id: string) => api.delete(`/payslips/${id}`),
 };
-
-// Make sure staffAPI is already defined in your fil
 
 // Add payroll configuration API
 export const payrollConfigAPI = {
@@ -569,34 +570,123 @@ export const notificationAPI = {
 };
 
 export const storiesAPI = {
-  // Upload a story (image or video)
-  uploadStory: (formData: FormData) => 
-    api.post('/stories/upload', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    }),
+  uploadStory: async (formData: FormData) => {
+    try {
+      console.log('📤 Uploading story...');
+      
+      const response = await api.post('/stories/upload', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+        timeout: 30000,
+        onUploadProgress: (progressEvent) => {
+          const percentCompleted = Math.round((progressEvent.loaded * 100) / (progressEvent.total || 1));
+          console.log(`Upload progress: ${percentCompleted}%`);
+        },
+      });
+      
+      console.log('✅ Story uploaded successfully:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ Error uploading story:', error);
+      
+      if (error.response) {
+        console.error('Response error:', {
+          status: error.response.status,
+          data: error.response.data,
+          headers: error.response.headers,
+        });
+      } else if (error.request) {
+        console.error('No response received:', error.request);
+      } else {
+        console.error('Error setting up request:', error.message);
+      }
+      
+      return {
+        success: false,
+        message: error.response?.data?.message || error.message || 'Network error. Please check your connection.',
+        data: null
+      };
+    }
+  },
 
   // Get stories feed for the current user
-  getStoryFeed: () => api.get('/stories/feed'),
+  getStoryFeed: async () => {
+    try {
+      const response = await api.get('/stories/feed');
+      return response.data;
+    } catch (error: any) {
+      console.error('Error fetching story feed:', error);
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Failed to fetch stories',
+        data: []
+      };
+    }
+  },
 
   // Get user's own stories
-  getMyStories: () => api.get('/stories/my-stories'),
+  getMyStories: async () => {
+    try {
+      const response = await api.get('/stories/my-stories');
+      return response.data;
+    } catch (error: any) {
+      console.error('Error fetching my stories:', error);
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Failed to fetch your stories',
+        data: []
+      };
+    }
+  },
 
   // Mark a story as viewed
-  viewStory: (storyId: string) => 
-    api.post(`/stories/${storyId}/view`),
+  viewStory: async (storyId: string) => {
+    try {
+      const response = await api.post(`/stories/${storyId}/view`);
+      return response.data;
+    } catch (error: any) {
+      console.error('Error viewing story:', error);
+      throw error;
+    }
+  },
 
   // Get who viewed your story
-  getStoryViews: (storyId: string) => 
-    api.get(`/stories/${storyId}/views`),
+  getStoryViews: async (storyId: string) => {
+    try {
+      const response = await api.get(`/stories/${storyId}/views`);
+      return response.data;
+    } catch (error: any) {
+      console.error('Error getting story views:', error);
+      throw error;
+    }
+  },
 
   // Delete a story
-  deleteStory: (storyId: string) => 
-    api.delete(`/stories/${storyId}`),
+  deleteStory: async (storyId: string) => {
+    try {
+      const response = await api.delete(`/stories/${storyId}`);
+      return response.data;
+    } catch (error: any) {
+      console.error('Error deleting story:', error);
+      throw error;
+    }
+  },
 
   // Get story statistics
-  getStats: () => api.get('/stories/stats'),
+  getStats: async () => {
+    try {
+      const response = await api.get('/stories/stats');
+      return response.data;
+    } catch (error: any) {
+      console.error('Error getting story stats:', error);
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Failed to get story statistics',
+        data: null
+      };
+    }
+  },
 };
 
 // Time Off API calls
@@ -617,7 +707,7 @@ export const timeOffAPI = {
   }) => api.post('/time-off/request', data),
 
   // Get all leaves (admin)
-   getAllLeaves: (filters?: {
+  getAllLeaves: (filters?: {
     user_id?: string;
     leave_type?: string;
     status?: string;
@@ -625,7 +715,7 @@ export const timeOffAPI = {
     end_date?: string;
     search?: string;
     year?: string;
-    limit?: number; // ADD THIS
+    limit?: number;
   }) => api.get('/time-off', { params: filters }),
 
   // Get user's own leaves
@@ -635,7 +725,7 @@ export const timeOffAPI = {
     start_date?: string;
     end_date?: string;
     year?: string;
-    limit?: number; // ADD THIS
+    limit?: number;
   }) => api.get('/time-off/my-leaves', { params: filters }),
 
   // Get leave summary
@@ -671,27 +761,35 @@ export const timeOffAPI = {
   getUserLeaveBalance: (userId: string) => api.get(`/time-off/user/${userId}/balance`),
 };
 
+// Update in src/services/api.ts
 export const autoGenerationAPI = {
   // Generate schedule using algorithms
   generateSchedule: (data: {
-    period: 'day' | 'week' | 'month' | 'custom';
+    period: string;
     start_date?: string;
     end_date?: string;
-    fill_open_only?: boolean;
-    consider_preferences?: boolean;
-    ensure_legal_compliance?: boolean;
+    algorithm?: string;
     auto_create_shifts?: boolean;
-    algorithm?: 'round_robin' | 'fair_share' | 'coverage_first' | 'preference_based';
-    balance_workload?: boolean;
-    max_shifts_per_staff?: number;
-    excluded_staff_ids?: string[];
     notes?: string;
   }) => api.post('/auto-scheduling/generate', data),
+
+  // Preview schedule (without creating)
+  previewSchedule: (data: {
+    period: string;
+    start_date?: string;
+    end_date?: string;
+    algorithm?: string;
+    notes?: string;
+  }) => api.post('/auto-scheduling/preview', data),
+
+  // Fill open shifts
+  fillOpenShifts: (period?: string) => 
+    api.post('/auto-scheduling/fill-open-shifts', period ? { period } : {}),
 
   // Get available staff for a shift
   getAvailableStaff: (roleId: string, startTime: string, endTime: string) => 
     api.get(`/auto-scheduling/available-staff/${roleId}`, {
-      params: { start_time: startTime, end_time: endTime }
+      params: { start_time: startTime, end_time: endTime },
     }),
 
   // Get scheduling history
@@ -701,20 +799,8 @@ export const autoGenerationAPI = {
   // Get available algorithms
   getAlgorithms: () => api.get('/auto-scheduling/algorithms'),
 
-  // Fill open shifts
-  fillOpenShifts: () => api.post('/auto-scheduling/fill-open-shifts'),
-
-  // Preview schedule (without creating)
-  previewSchedule: (data: {
-    period: 'day' | 'week' | 'month' | 'custom';
-    start_date?: string;
-    end_date?: string;
-    fill_open_only?: boolean;
-    consider_preferences?: boolean;
-    ensure_legal_compliance?: boolean;
-    algorithm?: string;
-    balance_workload?: boolean;
-  }) => api.post('/auto-scheduling/preview', data),
+  // Get period options
+  getPeriodOptions: () => api.get('/auto-scheduling/period-options'),
 };
 
 export default api;

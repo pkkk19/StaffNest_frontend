@@ -1,20 +1,14 @@
-// app/chat/_layout.tsx
+// app/chat/_layout.tsx - FIXED
 import { Stack } from 'expo-router';
 
 export default function ChatLayout() {
   return (
     <Stack
       screenOptions={{
-        headerShown: true,
-        headerStyle: {
-          backgroundColor: '#fff',
-        },
-        headerTintColor: '#000',
-        headerTitleStyle: {
-          fontWeight: '600',
-        },
-        // This ensures header works on Android
-        headerShadowVisible: true,
+        headerShown: false, // Hide header since we have custom header
+        // Important for Android
+        animation: 'slide_from_right',
+        animationDuration: 200,
       }}
     >
       <Stack.Screen 
@@ -26,22 +20,17 @@ export default function ChatLayout() {
       <Stack.Screen 
         name="contacts" 
         options={{ 
-          headerShown: true,
-          title: 'Contacts',
-          presentation: 'modal'
+          headerShown: false,
+          title: 'Contacts'
         }} 
       />
       <Stack.Screen
         name="[conversationId]"
         options={{
-          headerShown: true,
-          headerTitle: 'Chat',
-          // Android-specific header styling
-          headerTitleStyle: {
-            fontWeight: '600',
-            fontSize: 18,
-          },
-          headerTintColor: '#007AFF',
+          headerShown: false, // Custom header in component
+          // Android-specific options
+          gestureEnabled: true,
+          gestureDirection: 'horizontal',
         }}
       />
     </Stack>

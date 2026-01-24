@@ -1,5 +1,5 @@
 // app/rota/open-shifts.tsx
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { 
   Modal,
   View, 
@@ -16,7 +16,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Calendar, Users, Filter, AlertCircle, ChevronDown } from 'lucide-react-native';
 import { Shift } from '@/app/types/rota.types';
 import { useShiftRequests } from '@/hooks/useShiftRequests';
-import { useOpenShifts } from '@/hooks/useOpenShifts'; // Use the new hook
+import { useOpenShifts } from '@/hooks/useOpenShifts';
 import OpenShiftItem from '@/components/rota/OpenShiftItem';
 
 export default function OpenShiftsScreen() {
@@ -38,7 +38,7 @@ export default function OpenShiftsScreen() {
     try {
       await refetch();
     } catch (error) {
-      console.error('Refresh failed:', error);
+      // Handle refresh error silently
     } finally {
       setRefreshing(false);
     }
@@ -47,19 +47,10 @@ export default function OpenShiftsScreen() {
   const handleRequestShift = useCallback(async (shiftId: string, notes?: string) => {
     try {
       const result = await requestShift(shiftId, notes);
-      console.log('Shift request result:', result);
-      
-      // Show success modal
       setShowSuccessModal(true);
-      
-      // Remove the requested shift from the list
       refetch();
-      
       return result;
     } catch (error: any) {
-      console.error('Shift request error details:', error);
-      
-      // Set error message and show error modal
       let errorMessage = 'Failed to request shift';
       if (error.message?.includes('not available')) {
         errorMessage = 'This shift is no longer available for requests.';
@@ -71,49 +62,42 @@ export default function OpenShiftsScreen() {
       
       setErrorMessage(errorMessage);
       setShowErrorModal(true);
-      
       throw new Error(errorMessage);
     }
   }, [requestShift, refetch]);
 
   // Filter shifts by date
   const filteredShifts = openShifts.filter(shift => {
-    try {
-      const shiftDate = new Date(shift.start_time);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      
-      if (dateFilter === 'today') {
-        return shiftDate.toDateString() === today.toDateString();
-      }
-      if (dateFilter === 'week') {
-        const weekEnd = new Date(today);
-        weekEnd.setDate(today.getDate() + 7);
-        return shiftDate >= today && shiftDate <= weekEnd;
-      }
-      if (dateFilter === 'month') {
-        const monthEnd = new Date(today);
-        monthEnd.setMonth(today.getMonth() + 1);
-        return shiftDate >= today && shiftDate <= monthEnd;
-      }
-      return true;
-    } catch (error) {
-      return false;
+    const shiftDate = new Date(shift.start_time);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    if (dateFilter === 'today') {
+      return shiftDate.toDateString() === today.toDateString();
     }
+    if (dateFilter === 'week') {
+      const weekEnd = new Date(today);
+      weekEnd.setDate(today.getDate() + 7);
+      return shiftDate >= today && shiftDate <= weekEnd;
+    }
+    if (dateFilter === 'month') {
+      const monthEnd = new Date(today);
+      monthEnd.setMonth(today.getMonth() + 1);
+      return shiftDate >= today && shiftDate <= monthEnd;
+    }
+    
+    // 'all' - show all future shifts
+    return shiftDate >= today;
   });
 
   // Sort shifts
   const sortedShifts = [...filteredShifts].sort((a, b) => {
-    try {
-      if (sortBy === 'date') {
-        return new Date(a.start_time).getTime() - new Date(b.start_time).getTime();
-      } else {
-        const durationA = (new Date(a.end_time).getTime() - new Date(a.start_time).getTime()) / (1000 * 60 * 60);
-        const durationB = (new Date(b.end_time).getTime() - new Date(b.start_time).getTime()) / (1000 * 60 * 60);
-        return durationB - durationA;
-      }
-    } catch (error) {
-      return 0;
+    if (sortBy === 'date') {
+      return new Date(a.start_time).getTime() - new Date(b.start_time).getTime();
+    } else {
+      const durationA = (new Date(a.end_time).getTime() - new Date(a.start_time).getTime()) / (1000 * 60 * 60);
+      const durationB = (new Date(b.end_time).getTime() - new Date(b.start_time).getTime()) / (1000 * 60 * 60);
+      return durationB - durationA;
     }
   });
 
@@ -244,7 +228,7 @@ export default function OpenShiftsScreen() {
           </View>
         ) : (
           <View style={styles.shiftsList}>
-            {sortedShifts.map(shift => (
+            {sortedShifts.map((shift) => (
               <OpenShiftItem
                 key={shift._id}
                 shift={shift}
@@ -263,55 +247,56 @@ export default function OpenShiftsScreen() {
           </Text>
         </View>
       </ScrollView>
+      
       {/* Success Modal */}
-<Modal
-  visible={showSuccessModal}
-  transparent
-  animationType="fade"
-  onRequestClose={() => setShowSuccessModal(false)}
->
-  <View style={styles.successModalOverlay}>
-    <View style={styles.successModalContainer}>
-      <View style={styles.successIconContainer}>
-        {/* Add a success icon, e.g., CheckCircle */}
-      </View>
-      <Text style={styles.successModalTitle}>Success!</Text>
-      <Text style={styles.successModalText}>
-        Your shift request has been submitted and is pending approval.
-      </Text>
-      <TouchableOpacity
-        style={styles.successModalButton}
-        onPress={() => setShowSuccessModal(false)}
+      <Modal
+        visible={showSuccessModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowSuccessModal(false)}
       >
-        <Text style={styles.successModalButtonText}>Got it</Text>
-      </TouchableOpacity>
-    </View>
-  </View>
-</Modal>
+        <View style={styles.successModalOverlay}>
+          <View style={styles.successModalContainer}>
+            <View style={styles.successIconContainer}>
+              {/* Success icon */}
+            </View>
+            <Text style={styles.successModalTitle}>Success!</Text>
+            <Text style={styles.successModalText}>
+              Your shift request has been submitted and is pending approval.
+            </Text>
+            <TouchableOpacity
+              style={styles.successModalButton}
+              onPress={() => setShowSuccessModal(false)}
+            >
+              <Text style={styles.successModalButtonText}>Got it</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
-{/* Error Modal */}
-<Modal
-  visible={showErrorModal}
-  transparent
-  animationType="fade"
-  onRequestClose={() => setShowErrorModal(false)}
->
-  <View style={styles.errorModalOverlay}>
-    <View style={styles.errorModalContainer}>
-      <View style={styles.errorIconContainer}>
-        <AlertCircle size={48} color="#EF4444" />
-      </View>
-      <Text style={styles.errorModalTitle}>Request Failed</Text>
-      <Text style={styles.errorModalText}>{errorMessage}</Text>
-      <TouchableOpacity
-        style={styles.errorModalButton}
-        onPress={() => setShowErrorModal(false)}
+      {/* Error Modal */}
+      <Modal
+        visible={showErrorModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowErrorModal(false)}
       >
-        <Text style={styles.errorModalButtonText}>Try Again</Text>
-      </TouchableOpacity>
-    </View>
-  </View>
-</Modal>
+        <View style={styles.errorModalOverlay}>
+          <View style={styles.errorModalContainer}>
+            <View style={styles.errorIconContainer}>
+              <AlertCircle size={48} color="#EF4444" />
+            </View>
+            <Text style={styles.errorModalTitle}>Request Failed</Text>
+            <Text style={styles.errorModalText}>{errorMessage}</Text>
+            <TouchableOpacity
+              style={styles.errorModalButton}
+              onPress={() => setShowErrorModal(false)}
+            >
+              <Text style={styles.errorModalButtonText}>Try Again</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -535,102 +520,101 @@ const createStyles = (theme: string) => StyleSheet.create({
     color: theme === 'dark' ? '#9CA3AF' : '#6B7280',
     lineHeight: 18,
   },
-  // Add these to your StyleSheet in OpenShiftsScreen.tsx
-successModalOverlay: {
-  flex: 1,
-  backgroundColor: 'rgba(0, 0, 0, 0.5)',
-  justifyContent: 'center',
-  alignItems: 'center',
-  padding: 20,
-},
-successModalContainer: {
-  backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF',
-  borderRadius: 24,
-  padding: 32,
-  alignItems: 'center',
-  maxWidth: 400,
-  width: '100%',
-},
-successIconContainer: {
-  width: 80,
-  height: 80,
-  borderRadius: 40,
-  backgroundColor: '#10B98120',
-  alignItems: 'center',
-  justifyContent: 'center',
-  marginBottom: 20,
-},
-successModalTitle: {
-  fontSize: 24,
-  fontWeight: '700',
-  color: theme === 'dark' ? '#F9FAFB' : '#111827',
-  marginBottom: 12,
-  textAlign: 'center',
-},
-successModalText: {
-  fontSize: 16,
-  color: theme === 'dark' ? '#9CA3AF' : '#6B7280',
-  textAlign: 'center',
-  marginBottom: 24,
-  lineHeight: 24,
-},
-successModalButton: {
-  backgroundColor: '#10B981',
-  paddingHorizontal: 32,
-  paddingVertical: 14,
-  borderRadius: 12,
-  width: '100%',
-  alignItems: 'center',
-},
-successModalButtonText: {
-  color: '#FFFFFF',
-  fontSize: 16,
-  fontWeight: '600',
-},
-
-errorModalOverlay: {
-  flex: 1,
-  backgroundColor: 'rgba(0, 0, 0, 0.5)',
-  justifyContent: 'center',
-  alignItems: 'center',
-  padding: 20,
-},
-errorModalContainer: {
-  backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF',
-  borderRadius: 24,
-  padding: 32,
-  alignItems: 'center',
-  maxWidth: 400,
-  width: '100%',
-},
-errorIconContainer: {
-  marginBottom: 20,
-},
-errorModalTitle: {
-  fontSize: 24,
-  fontWeight: '700',
-  color: theme === 'dark' ? '#F9FAFB' : '#111827',
-  marginBottom: 12,
-  textAlign: 'center',
-},
-errorModalText: {
-  fontSize: 16,
-  color: theme === 'dark' ? '#9CA3AF' : '#6B7280',
-  textAlign: 'center',
-  marginBottom: 24,
-  lineHeight: 24,
-},
-errorModalButton: {
-  backgroundColor: '#3B82F6',
-  paddingHorizontal: 32,
-  paddingVertical: 14,
-  borderRadius: 12,
-  width: '100%',
-  alignItems: 'center',
-},
-errorModalButtonText: {
-  color: '#FFFFFF',
-  fontSize: 16,
-  fontWeight: '600',
-},
+  // Modal styles
+  successModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  successModalContainer: {
+    backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF',
+    borderRadius: 24,
+    padding: 32,
+    alignItems: 'center',
+    maxWidth: 400,
+    width: '100%',
+  },
+  successIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#10B98120',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+  },
+  successModalTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: theme === 'dark' ? '#F9FAFB' : '#111827',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  successModalText: {
+    fontSize: 16,
+    color: theme === 'dark' ? '#9CA3AF' : '#6B7280',
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 24,
+  },
+  successModalButton: {
+    backgroundColor: '#10B981',
+    paddingHorizontal: 32,
+    paddingVertical: 14,
+    borderRadius: 12,
+    width: '100%',
+    alignItems: 'center',
+  },
+  successModalButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  errorModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorModalContainer: {
+    backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF',
+    borderRadius: 24,
+    padding: 32,
+    alignItems: 'center',
+    maxWidth: 400,
+    width: '100%',
+  },
+  errorIconContainer: {
+    marginBottom: 20,
+  },
+  errorModalTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: theme === 'dark' ? '#F9FAFB' : '#111827',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  errorModalText: {
+    fontSize: 16,
+    color: theme === 'dark' ? '#9CA3AF' : '#6B7280',
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 24,
+  },
+  errorModalButton: {
+    backgroundColor: '#3B82F6',
+    paddingHorizontal: 32,
+    paddingVertical: 14,
+    borderRadius: 12,
+    width: '100%',
+    alignItems: 'center',
+  },
+  errorModalButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
 });

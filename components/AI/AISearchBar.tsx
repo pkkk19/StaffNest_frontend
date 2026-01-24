@@ -7,9 +7,9 @@ import {
   StyleSheet,
   Platform,
   Keyboard,
-  Text // Added missing Text import
+  Text
 } from 'react-native';
-import { Send, Paperclip, X, Bot, ActivityIcon } from 'lucide-react-native'; // Added Bot icon
+import { Send, Paperclip, X, Bot, ActivityIcon, ArrowRight } from 'lucide-react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { router } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
@@ -18,11 +18,13 @@ import * as ImagePicker from 'expo-image-picker';
 interface AISearchBarProps {
   placeholder?: string;
   onSend?: (message: string, attachments?: any[]) => void;
+  showHeader?: boolean;
 }
 
 export default function AISearchBar({ 
   placeholder = "Ask anything....", 
-  onSend 
+  onSend,
+  showHeader = true
 }: AISearchBarProps) {
   const { theme } = useTheme();
   const [message, setMessage] = useState('');
@@ -32,35 +34,40 @@ export default function AISearchBar({
 
   const styles = createStyles(theme);
 
+  const navigateToAIChat = () => {
+    router.push({
+      pathname: '/pages/ai-chat',
+      params: {
+        timestamp: Date.now()
+      }
+    });
+  };
+
   const handleSend = async () => {
     if (message.trim() || attachments.length > 0) {
-    if (onSend) {
-      // If onSend is provided, use it
-      onSend(message, attachments);
-    } else {
-      // Otherwise, navigate to AI chat and trigger sending immediately
-      setIsLoading(true);
-      
-      // Navigate with initial message and flag to auto-send
-      router.push({
-        pathname: '/pages/ai-chat',
-        params: { 
-          initialMessage: message,
-          shouldAutoSend: 'true',
-          timestamp: Date.now() // Add timestamp to ensure unique params
-        }
-      });
-      
-      // Reset loading state after navigation
-      setTimeout(() => {
-        setIsLoading(false);
-      }, 1000);
+      if (onSend) {
+        onSend(message, attachments);
+      } else {
+        setIsLoading(true);
+        
+        router.push({
+          pathname: '/pages/ai-chat',
+          params: { 
+            initialMessage: message,
+            shouldAutoSend: 'true',
+            timestamp: Date.now()
+          }
+        });
+        
+        setTimeout(() => {
+          setIsLoading(false);
+        }, 1000);
+      }
+      setMessage('');
+      setAttachments([]);
+      setIsExpanded(false);
+      Keyboard.dismiss();
     }
-    setMessage('');
-    setAttachments([]);
-    setIsExpanded(false);
-    Keyboard.dismiss();
-  }
   };
 
   const pickDocument = async () => {
@@ -120,18 +127,30 @@ export default function AISearchBar({
 
   return (
     <View style={styles.container}>
-      {/* Header with AI branding */}
-      <View style={styles.header}>
-        <View style={styles.aiBranding}>
-          <View style={styles.aiIconContainer}>
-            <Bot size={16} color="#10B981" />
+      {/* Header with AI branding - Now clickable */}
+      {showHeader && (
+        <TouchableOpacity 
+          style={styles.header}
+          onPress={navigateToAIChat}
+          activeOpacity={0.7}
+        >
+          <View style={styles.headerContent}>
+            <View style={styles.aiBranding}>
+              <View style={styles.aiIconContainer}>
+                <Bot size={16} color="#10B981" />
+              </View>
+              <Text style={styles.aiBrandingText}>HourWize AI Assistant</Text>
+            </View>
+            
+            <View style={styles.headerRight}>
+              {attachments.length > 0 && (
+                <Text style={styles.attachmentCount}>{attachments.length} attachment(s)</Text>
+              )}
+              <ArrowRight size={16} color={theme === 'dark' ? '#9CA3AF' : '#6B7280'} />
+            </View>
           </View>
-          <Text style={styles.aiBrandingText}>HourWize AI Assistant</Text>
-        </View>
-        {attachments.length > 0 && (
-          <Text style={styles.attachmentCount}>{attachments.length} attachment(s)</Text>
-        )}
-      </View>
+        </TouchableOpacity>
+      )}
 
       {isExpanded && attachments.length > 0 && (
         <View style={styles.attachmentContainer}>
@@ -176,6 +195,7 @@ export default function AISearchBar({
           onSubmitEditing={handleSend}
           returnKeyType="send"
           blurOnSubmit={false}
+          onKeyPress={handleKeyPress}
         />
         
         <TouchableOpacity 
@@ -187,7 +207,7 @@ export default function AISearchBar({
           disabled={(!message.trim() && attachments.length === 0) || isLoading}
         >
           {isLoading ? (
-            <ActivityIcon size="small" color="#FFFFFF" />
+            <ActivityIcon size={20} color="#FFFFFF" />
           ) : (
             <Send 
               size={20} 
@@ -201,7 +221,6 @@ export default function AISearchBar({
         </TouchableOpacity>
       </View>
       
-      {/* Helper text */}
       <Text style={styles.helperText}>
         Ask about shifts, payroll, or policies • Press Enter to send
       </Text>
@@ -234,14 +253,16 @@ const createStyles = (theme: string) => {
       }),
     },
     header: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
       paddingHorizontal: 16,
       paddingVertical: 12,
       backgroundColor: isDark ? '#374151' : '#f6f8fbff',
       borderBottomWidth: 1,
       borderBottomColor: isDark ? '#4B5563' : '#686b71ff',
+    },
+    headerContent: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
     },
     aiBranding: {
       flexDirection: 'row',
@@ -260,6 +281,11 @@ const createStyles = (theme: string) => {
       fontSize: 14,
       fontWeight: '600',
       color: isDark ? '#10B981' : '#211d1dff',
+    },
+    headerRight: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
     },
     attachmentCount: {
       fontSize: 12,

@@ -1,4 +1,4 @@
-// app/services/contacts.service.ts
+// app/services/contactsService.ts
 import api from './api';
 
 export interface User {
@@ -6,6 +6,7 @@ export interface User {
   first_name: string;
   last_name: string;
   email: string;
+  phone_number?: string;
   profile_picture_url?: string;
   position?: string;
   is_active: boolean;
@@ -19,39 +20,49 @@ export interface SearchedUser extends User {
 export interface FriendRequest {
   _id: string;
   fromUser: User;
-  toUser?: string | User; // Make optional and allow both types
-  touser?: string | User; // Add lowercase version
+  toUser?: string | User;
+  touser?: string | User;
   status: string;
   message?: string;
   createdAt: string;
   type?: 'incoming' | 'outgoing';
 }
 
-export type UserOrString = User | string;
-
 export interface Friend {
   _id: string;
   first_name: string;
   last_name: string;
   email: string;
+  phone_number?: string;
   profile_picture_url?: string;
   position?: string;
   is_active: boolean;
   friendsSince: string;
 }
 
-export interface FriendRequestResponse {
-  _id: string;
-  fromUser: User;
-  toUser?: string;
-  touser?: string;
-  status: string;
+export interface VerifiedContact {
+  user: SearchedUser;
+  matchedPhoneNumbers: string[];
+}
+
+export interface VerifyContactsResponse {
+  foundUsers: Array<{
+    user: User;
+    friendshipStatus: 'friends' | 'pending' | 'none';
+    isIncomingRequest: boolean;
+    matchedPhoneNumbers: string[];
+  }>;
+  notFoundNumbers: string[];
+}
+
+export interface BulkRequestResult {
+  userId: string;
+  status: 'success' | 'error' | 'skipped';
   message?: string;
-  createdAt: string;
 }
 
 class ContactsService {
-  // Search users within company
+  // Search users (now includes phone number search)
   async searchUsers(query: string): Promise<SearchedUser[]> {
     if (!query || query.length < 2) {
       return [];
@@ -70,28 +81,24 @@ class ContactsService {
   }
 
   // Get pending friend requests
- // In your contactsService.ts
-async getPendingRequests(): Promise<FriendRequest[]> {
-  console.log('📞 Fetching pending requests...');
-  console.log('🔑 Auth headers check...');
-  
-  try {
-    const response = await api.get('/contacts/friend-requests/pending');
-    console.log('📦 Raw API response:', response.data);
-    console.log('📋 Response status:', response.status);
-    console.log('🔗 Response headers:', response.headers);
+  async getPendingRequests(): Promise<FriendRequest[]> {
+    console.log('📞 Fetching pending requests...');
     
-    return response.data as FriendRequest[];
-  } catch (error: any) {
-    console.error('💥 API Error details:', {
-      message: error.message,
-      response: error.response?.data,
-      status: error.response?.status,
-      headers: error.response?.headers
-    });
-    throw error;
+    try {
+      const response = await api.get('/contacts/friend-requests/pending');
+      console.log('📦 Raw API response:', response.data);
+      console.log('📋 Response status:', response.status);
+      
+      return response.data as FriendRequest[];
+    } catch (error: any) {
+      console.error('💥 API Error details:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      });
+      throw error;
+    }
   }
-}
 
   // Respond to friend request
   async respondToFriendRequest(requestId: string, action: 'accepted' | 'rejected'): Promise<any> {
@@ -129,6 +136,23 @@ async getPendingRequests(): Promise<FriendRequest[]> {
   // Add friend by QR code
   async addFriendByQR(qrData: string): Promise<any> {
     const response = await api.post('/contacts/qr-add', { qrData });
+    return response.data;
+  }
+
+  // NEW: Verify phone contacts with backend
+  async verifyPhoneContacts(phoneNumbers: string[]): Promise<VerifyContactsResponse> {
+    const response = await api.post('/contacts/verify-phone-contacts', {
+      phoneNumbers
+    });
+    return response.data;
+  }
+
+  // NEW: Send bulk friend requests
+  async sendBulkFriendRequests(userIds: string[], message?: string): Promise<BulkRequestResult[]> {
+    const response = await api.post('/contacts/bulk-friend-requests', {
+      userIds,
+      message
+    });
     return response.data;
   }
 }

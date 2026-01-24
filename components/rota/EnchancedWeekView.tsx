@@ -16,6 +16,25 @@ interface EnhancedWeekViewProps {
 const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const hours = Array.from({ length: 24 }, (_, i) => i);
 const { width } = Dimensions.get('window');
+const HOUR_HEIGHT = 60; // Height of each hour cell in pixels
+const CELL_WIDTH = (width - 60) / 7; // Width of each day cell
+
+// Helper function to get week start date (Monday)
+const getWeekStartDate = (date: Date) => {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Monday as first day
+  d.setDate(diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+};
+
+// Helper to get day index (0-6) from a date within the week
+const getDayIndexInWeek = (date: Date, weekStart: Date) => {
+  const diffInTime = date.getTime() - weekStart.getTime();
+  const diffInDays = Math.floor(diffInTime / (1000 * 60 * 60 * 24));
+  return Math.max(0, Math.min(6, diffInDays));
+};
 
 export default function EnhancedWeekView({
   shifts,
@@ -28,23 +47,45 @@ export default function EnhancedWeekView({
   const { theme } = useTheme();
   const styles = createStyles(theme);
 
-  // Get the week dates
-  const getWeekDates = (date: Date) => {
-    const currentDate = new Date(date);
-    const day = currentDate.getDay();
-    const diff = currentDate.getDate() - day + (day === 0 ? -6 : 1);
-    const monday = new Date(currentDate.setDate(diff));
+  // Get the week dates based on selectedDate
+  const getWeekDates = () => {
+    const weekStart = getWeekStartDate(selectedDate);
     
     return Array.from({ length: 7 }, (_, i) => {
-      const date = new Date(monday);
-      date.setDate(monday.getDate() + i);
+      const date = new Date(weekStart);
+      date.setDate(weekStart.getDate() + i);
       return date;
     });
   };
 
-  const weekDates = getWeekDates(selectedDate);
+  const weekDates = getWeekDates();
+  const weekStart = getWeekStartDate(selectedDate);
 
   const renderCalendarView = () => {
+    // Group shifts by hour and day
+    const shiftsByHourAndDay: Record<string, Shift[]> = {};
+    
+    // Initialize structure
+    hours.forEach(hour => {
+      weekDates.forEach((date, dayIndex) => {
+        const key = `${dayIndex}-${hour}`;
+        shiftsByHourAndDay[key] = [];
+      });
+    });
+
+    // Fill with shifts
+    shifts.forEach(shift => {
+      const startTime = new Date(shift.start_time);
+      const dayIndex = getDayIndexInWeek(startTime, weekStart);
+      const startHour = startTime.getHours();
+      
+      // Add to the hour slot where it starts
+      const key = `${dayIndex}-${startHour}`;
+      if (shiftsByHourAndDay[key]) {
+        shiftsByHourAndDay[key].push(shift);
+      }
+    });
+
     return (
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
         <View style={styles.calendarContainer}>
@@ -69,12 +110,12 @@ export default function EnhancedWeekView({
                 
                 {weekDates.map((date, dayIndex) => {
                   const dateStr = date.toISOString().split('T')[0];
-                  const hourShifts = shifts.filter(shift => {
+                  const hourShifts = shiftsByHourAndDay[`${dayIndex}-${hour}`] || [];
+                  
+                  // Filter to show only shifts that start in this hour slot
+                  const startingShifts = hourShifts.filter(shift => {
                     const shiftDate = new Date(shift.start_time);
-                    return (
-                      shiftDate.toISOString().split('T')[0] === dateStr &&
-                      shiftDate.getHours() === hour
-                    );
+                    return shiftDate.getHours() === hour;
                   });
 
                   return (
@@ -83,26 +124,51 @@ export default function EnhancedWeekView({
                       style={styles.timeCell}
                       onPress={() => onAddShift && onAddShift(date, `${hour.toString().padStart(2, '0')}:00`)}
                     >
-                      {hourShifts.map((shift, idx) => (
-                        <ForceTouchable
-                          key={shift._id}
-                          style={[
-                            styles.shiftBlock,
-                            { backgroundColor: shift.color_hex || '#3B82F6' },
-                            idx > 0 && { marginTop: 2 }
-                          ]}
-                          onPress={() => onShiftPress(shift)}
-                        >
-                          <Text style={styles.shiftBlockTitle} numberOfLines={1}>
-                            {shift.title}
-                          </Text>
-                          {shift.user_id && (
-                            <Text style={styles.shiftBlockUser} numberOfLines={1}>
-                              {shift.user_id.first_name}
+                      {startingShifts.map((shift, idx) => {
+                        const startTime = new Date(shift.start_time);
+                        const endTime = new Date(shift.end_time);
+                        
+                        // Calculate width based on duration
+                        const durationMinutes = (endTime.getTime() - startTime.getTime()) / (1000 * 60);
+                        
+                        // Convert duration to approximate width
+                        // 1 hour = 100% width, 30 min = 50% width, etc.
+                        const widthPercentage = Math.min(100, (durationMinutes / 60) * 100);
+                        
+                        // Check if shift spans into next day(s)
+                        const isMultiDay = startTime.getDate() !== endTime.getDate();
+                        
+                        return (
+                          <ForceTouchable
+                            key={shift._id}
+                            style={[
+                              styles.shiftBlock,
+                              { 
+                                backgroundColor: shift.color_hex || '#3B82F6',
+                                width: `${widthPercentage}%`,
+                                alignSelf: 'flex-start',
+                              },
+                              idx > 0 && { marginTop: 2 }
+                            ]}
+                            onPress={() => onShiftPress(shift)}
+                          >
+                            <Text style={styles.shiftBlockTitle} numberOfLines={1}>
+                              {shift.title}
                             </Text>
-                          )}
-                        </ForceTouchable>
-                      ))}
+                            {isMultiDay && (
+                              <Text style={styles.shiftBlockDuration} numberOfLines={1}>
+                                {startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - 
+                                {endTime.toLocaleDateString([], { month: 'short', day: 'numeric' })} {endTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </Text>
+                            )}
+                            {!isMultiDay && shift.user_id && (
+                              <Text style={styles.shiftBlockUser} numberOfLines={1}>
+                                {shift.user_id.first_name}
+                              </Text>
+                            )}
+                          </ForceTouchable>
+                        );
+                      })}
                     </TouchableOpacity>
                   );
                 })}
@@ -156,23 +222,41 @@ export default function EnhancedWeekView({
 
                 return (
                   <View key={dayIndex} style={styles.userDayCell}>
-                    {dayShifts.map((shift, idx) => (
-                      <ForceTouchable
-                        key={shift._id}
-                        style={[
-                          styles.userShiftBlock,
-                          { backgroundColor: shift.color_hex || '#3B82F6' }
-                        ]}
-                        onPress={() => onShiftPress(shift)}
-                      >
-                        <Text style={styles.userShiftTime} numberOfLines={1}>
-                          {new Date(shift.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </Text>
-                        <Text style={styles.userShiftTitle} numberOfLines={1}>
-                          {shift.title}
-                        </Text>
-                      </ForceTouchable>
-                    ))}
+                    {dayShifts.map((shift, idx) => {
+                      const startTime = new Date(shift.start_time);
+                      const endTime = new Date(shift.end_time);
+                      const durationHours = (endTime.getTime() - startTime.getTime()) / (1000 * 60 * 60);
+                      
+                      // Calculate width based on duration (24 hours = 100% width)
+                      // Minimum 40% width for any shift
+                      let widthPercentage = (durationHours / 24) * 100;
+                      widthPercentage = Math.max(40, Math.min(100, widthPercentage));
+                      
+                      return (
+                        <ForceTouchable
+                          key={shift._id}
+                          style={[
+                            styles.userShiftBlock,
+                            { 
+                              backgroundColor: shift.color_hex || '#3B82F6',
+                              width: `${widthPercentage}%`,
+                              alignSelf: 'flex-start',
+                            }
+                          ]}
+                          onPress={() => onShiftPress(shift)}
+                        >
+                          <Text style={styles.userShiftTime} numberOfLines={1}>
+                            {startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </Text>
+                          <Text style={styles.userShiftTitle} numberOfLines={1}>
+                            {shift.title}
+                          </Text>
+                          <Text style={styles.userShiftDuration} numberOfLines={1}>
+                            {durationHours.toFixed(1)}h
+                          </Text>
+                        </ForceTouchable>
+                      );
+                    })}
                     {dayShifts.length === 0 && onAddShift && (
                       <TouchableOpacity
                         style={styles.addShiftCell}
@@ -204,23 +288,41 @@ export default function EnhancedWeekView({
 
               return (
                 <View key={dayIndex} style={styles.userDayCell}>
-                  {unassignedShifts.map((shift, idx) => (
-                    <ForceTouchable
-                      key={shift._id}
-                      style={[
-                        styles.userShiftBlock,
-                        { backgroundColor: '#8B5CF6' }
-                      ]}
-                      onPress={() => onShiftPress(shift)}
-                    >
-                      <Text style={styles.userShiftTime} numberOfLines={1}>
-                        {new Date(shift.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </Text>
-                      <Text style={styles.userShiftTitle} numberOfLines={1}>
-                        {shift.title} (Open)
-                      </Text>
-                    </ForceTouchable>
-                  ))}
+                  {unassignedShifts.map((shift, idx) => {
+                    const startTime = new Date(shift.start_time);
+                    const endTime = new Date(shift.end_time);
+                    const durationHours = (endTime.getTime() - startTime.getTime()) / (1000 * 60 * 60);
+                    
+                    // Calculate width based on duration (24 hours = 100% width)
+                    // Minimum 40% width for any shift
+                    let widthPercentage = (durationHours / 24) * 100;
+                    widthPercentage = Math.max(40, Math.min(100, widthPercentage));
+                    
+                    return (
+                      <ForceTouchable
+                        key={shift._id}
+                        style={[
+                          styles.userShiftBlock,
+                          { 
+                            backgroundColor: '#8B5CF6',
+                            width: `${widthPercentage}%`,
+                            alignSelf: 'flex-start',
+                          }
+                        ]}
+                        onPress={() => onShiftPress(shift)}
+                      >
+                        <Text style={styles.userShiftTime} numberOfLines={1}>
+                          {startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </Text>
+                        <Text style={styles.userShiftTitle} numberOfLines={1}>
+                          {shift.title} (Open)
+                        </Text>
+                        <Text style={styles.userShiftDuration} numberOfLines={1}>
+                          {durationHours.toFixed(1)}h
+                        </Text>
+                      </ForceTouchable>
+                    );
+                  })}
                   {onAddShift && (
                     <TouchableOpacity
                       style={styles.addShiftCell}
@@ -368,11 +470,17 @@ const createStyles = (theme: string) => StyleSheet.create({
     padding: 6,
     borderRadius: 4,
     minHeight: 40,
+    marginBottom: 2,
   },
   shiftBlockTitle: {
     fontSize: 10,
     fontWeight: '600',
     color: '#FFFFFF',
+    marginBottom: 2,
+  },
+  shiftBlockDuration: {
+    fontSize: 8,
+    color: 'rgba(255, 255, 255, 0.9)',
     marginBottom: 2,
   },
   shiftBlockUser: {
@@ -425,6 +533,7 @@ const createStyles = (theme: string) => StyleSheet.create({
     padding: 6,
     borderRadius: 4,
     marginBottom: 2,
+    minHeight: 40,
   },
   userShiftTime: {
     fontSize: 9,
@@ -434,6 +543,11 @@ const createStyles = (theme: string) => StyleSheet.create({
   userShiftTitle: {
     fontSize: 10,
     color: 'rgba(255, 255, 255, 0.9)',
+    marginTop: 1,
+  },
+  userShiftDuration: {
+    fontSize: 8,
+    color: 'rgba(255, 255, 255, 0.7)',
     marginTop: 1,
   },
   addShiftCell: {

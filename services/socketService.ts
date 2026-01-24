@@ -1,307 +1,304 @@
-// /services/socketService.ts - FIXED
+// services/socketService.ts - FIXED VERSION WITH COMPLETE SENDER DATA
 import { io, Socket } from 'socket.io-client';
 import { Platform } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage'; // Import directly
-import api from './api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import api, { BASE_URL } from './api';
+
+interface SocketAuth {
+  token?: string;
+  userId?: string;
+}
 
 class SocketService {
   private socket: Socket | null = null;
   private listeners: Map<string, Function[]> = new Map();
   private connectionState: 'disconnected' | 'connecting' | 'connected' = 'disconnected';
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 10;
+  private connectionTimeout: ReturnType<typeof setTimeout> | null = null;
+  private currentUserId: string | null = null;
+  private currentUserData: any = null;
 
-// In socketService.ts, update connect() method:
-async connect(token?: string) {
-  // If already connected with same token, don't reconnect
-  if (this.socket?.connected) {
-    const currentAuth = this.socket.auth as { token?: string } | undefined;
-     const currentToken = currentAuth?.token;
-    const newToken = token || await AsyncStorage.getItem('authaccess_token');
-    
-    if (currentToken === newToken) {
-      console.log('✅ Socket already connected with same token');
-      return;
-    }
-  }
-
-  let authToken: string | undefined = token;
-  
-  if (!authToken) {
+  async connect(token?: string) {
     try {
-      const storedToken = await AsyncStorage.getItem('authaccess_token');
-      authToken = storedToken || undefined;
-      console.log(`🔑 Retrieved token: ${authToken ? 'YES' : 'NO'}`);
-    } catch (error) {
-      console.error('Error getting auth token:', error);
-    }
-  }
+      // If already connecting or connected with same token, skip
+      if (this.socket?.connected || this.connectionState === 'connecting') {
+        console.log('🔌 Socket already connected or connecting');
+        return;
+      }
 
-  if (!authToken) {
-    console.log('❌ No authentication token available for socket connection');
-    return;
-  }
-
-  const SOCKET_URL = 'https://staffnest-backend-production.up.railway.app';
-
-  console.log('🔗 Connecting socket with token...');
-
-  // Clean up existing socket
-  if (this.socket) {
-    console.log('🔄 Cleaning up previous socket connection');
-    this.socket.disconnect();
-    this.socket = null;
-  }
-
-  this.socket = io(SOCKET_URL, {
-    auth: { token: authToken },
-    transports: ['websocket', 'polling'],
-    forceNew: true,
-    reconnection: true,
-    reconnectionAttempts: 5,
-    reconnectionDelay: 1000,
-    timeout: 10000,
-    autoConnect: true,
-  });
-
-  this.setupListeners();
-}
-
-
-async testConnection() {
-  console.log('🔍 Testing WebSocket connection...');
-  // Test 2: Try with socket.io client
-  console.log('\n🔍 Test 2: Testing Socket.io connection...');
-  try {
-    // Get token for auth test
-    const authToken = await AsyncStorage.getItem('authaccess_token') || 
-                    await AsyncStorage.getItem('authToken');
-    console.log(`🔑 Token available: ${authToken ? 'YES' : 'NO'}`);
-    
-    if (!authToken) {
-      console.log('⚠️ Test 2 SKIP: No auth token available');
-    } else {
-      // Test with auth token
-      const testSocket = io('https://staffnest-backend-production.up.railway.app', {
-        auth: { token: authToken },
-        transports: ['websocket', 'polling'],
-        forceNew: true,
-        timeout: 5000,
-      });
-
-      // Set up test listeners
-      testSocket.on('connect', () => {
-        console.log('✅ Test 2 PASS: Socket.io connected with auth token');
-        // Test emit/receive
-        testSocket.emit('test_ping', { timestamp: Date.now() });
-        
-        // Clean up after test
-        setTimeout(() => {
-          testSocket.disconnect();
-        }, 1000);
-      });
-
-      testSocket.on('connect_error', (error) => {
-        console.error('❌ Test 2 FAIL: Socket.io connection error:', error.message);
-        testSocket.disconnect();
-      });
-
-      testSocket.on('test_pong', (data) => {
-        console.log('✅ Test 2: Received test response:', data);
-      });
-
-      testSocket.on('disconnect', (reason) => {
-        console.log(`🔒 Test 2: Socket disconnected. Reason: ${reason}`);
-      });
-
-      // Timeout after 10 seconds
-      setTimeout(() => {
-        if (testSocket.connected) {
-          console.log('⏱️ Test 2: Connection timeout - cleaning up');
-          testSocket.disconnect();
-        }
-      }, 10000);
-    }
-  } catch (error) {
-    console.error('❌ Test 2 FAIL: Socket.io test error:', error);
-  }
-
-  // Test 3: Test HTTP endpoint availability
-  console.log('\n🔍 Test 3: Testing HTTP endpoints...');
-  try {
-    const response = await fetch('https://staffnest-backend-production.up.railway.app', {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-      },
-    });
-    
-    console.log(`✅ Test 3 PASS: Server is reachable. Status: ${response.status}`);
-    
-    // Try to get server info if available
-    try {
-      const data = await response.json();
-      console.log('📊 Server info:', data);
-    } catch {
-      console.log('ℹ️ No JSON response from server root');
-    }
-  } catch (error) {
-    console.error('❌ Test 3 FAIL: HTTP test failed:', error);
-  }
-
-  // Test 4: Test specific socket.io path
-  console.log('\n🔍 Test 4: Testing socket.io handshake...');
-  try {
-    const response = await fetch('https://staffnest-backend-production.up.railway.app/socket.io/?EIO=4&transport=polling', {
-      method: 'GET',
-    });
-    
-    console.log(`✅ Test 4 PASS: Socket.io handshake successful. Status: ${response.status}`);
-    
-    const text = await response.text();
-    if (text.includes('sid')) {
-      console.log('✅ Socket.io session ID found');
-    } else {
-      console.log('⚠️ Unexpected handshake response:', text.substring(0, 100));
-    }
-  } catch (error) {
-    console.error('❌ Test 4 FAIL: Socket.io handshake test failed:', error);
-  }
-
-  // Test 5: Test with current socket instance
-  console.log('\n🔍 Test 5: Testing current socket instance...');
-  if (this.socket) {
-    console.log(`ℹ️ Current socket status:`);
-    console.log(`  - Connected: ${this.socket.connected}`);
-    console.log(`  - ID: ${this.socket.id || 'No ID'}`);
-    console.log(`  - Active: ${!!this.socket}`);
-    
-    // Try to ping the server if connected
-    if (this.socket.connected) {
-      this.socket.emit('ping', { test: Date.now() });
-      console.log('✅ Test 5: Ping sent to server');
-    } else {
-      console.log('⚠️ Test 5: Socket exists but not connected');
-    }
-  } else {
-    console.log('ℹ️ Test 5: No active socket instance');
-  }
-
-  console.log('\n🔍 Test 6: Testing AsyncStorage token...');
-  try {
-    const tokens = {
-      authToken: await AsyncStorage.getItem('authToken'),
-      authaccess_token: await AsyncStorage.getItem('authaccess_token'),
-      access_token: await AsyncStorage.getItem('access_token'),
-    };
-    
-    console.log('🔑 Available tokens:', tokens);
-    
-    // Find which token we should use
-    const activeToken = tokens.authaccess_token || tokens.access_token || tokens.authToken;
-    if (activeToken) {
+      let authToken: string | undefined = token;
       
-      // Validate token format (simple JWT check)
-      if (activeToken.includes('.')) {
-        const parts = activeToken.split('.');
-        console.log(`  - Token appears to be JWT with ${parts.length} parts`);
+      if (!authToken) {
         try {
-          const payload = JSON.parse(atob(parts[1]));
-          console.log(`  - Token payload:`, {
-            exp: payload.exp ? new Date(payload.exp * 1000).toISOString() : 'No expiry',
-            iat: payload.iat ? new Date(payload.iat * 1000).toISOString() : 'No issue time',
-            sub: payload.sub || 'No user ID',
-            role: payload.role || 'No role',
-          });
-        } catch {
-          console.log('  - Could not decode token payload');
+          authToken = await AsyncStorage.getItem('authaccess_token') || undefined;
+        } catch (error) {
+          console.error('Error getting auth token:', error);
         }
       }
-    } else {
-      console.log('❌ Test 6 FAIL: No auth tokens found');
-    }
-  } catch (error) {
-    console.error('❌ Test 6 FAIL: Token test error:', error);
-  }
 
-  console.log('\n🎯 Connection tests completed!');
-}
+      if (!authToken) {
+        console.log('❌ No authentication token available for socket connection');
+        this.emitEvent('connect_error', { message: 'No auth token' });
+        return;
+      }
+
+      // Get current user data from AsyncStorage for sender info
+      try {
+        const userData = await AsyncStorage.getItem('user');
+        if (userData) {
+          const user = JSON.parse(userData);
+          this.currentUserId = user._id;
+          this.currentUserData = {
+            _id: user._id,
+            first_name: user.first_name || 'User',
+            last_name: user.last_name || '',
+            profile_picture_url: user.profile_picture_url || null
+          };
+          console.log('👤 Loaded current user data for socket:', {
+            userId: this.currentUserId,
+            name: `${this.currentUserData.first_name} ${this.currentUserData.last_name}`
+          });
+        }
+      } catch (error) {
+        console.error('Error loading user data for socket:', error);
+      }
+
+      const SOCKET_URL = BASE_URL;
+
+      console.log('🔗 Connecting socket to:', SOCKET_URL);
+
+      // Clean up existing socket
+      if (this.socket) {
+        this.socket.disconnect();
+        this.socket = null;
+      }
+
+      this.connectionState = 'connecting';
+      
+      // Create new socket connection with proper options
+      this.socket = io(SOCKET_URL, {
+        auth: { 
+          token: authToken,
+          platform: Platform.OS,
+          timestamp: Date.now(),
+          userId: this.currentUserId
+        },
+        transports: ['websocket', 'polling'],
+        reconnection: true,
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        timeout: 20000,
+        autoConnect: true,
+        forceNew: false,
+        query: {
+          clientType: 'mobile',
+          platform: Platform.OS,
+          version: '1.0.0',
+          userId: this.currentUserId
+        }
+      });
+
+      this.setupListeners();
+
+      // Set connection timeout
+      if (this.connectionTimeout) {
+        clearTimeout(this.connectionTimeout);
+      }
+      
+      this.connectionTimeout = setTimeout(() => {
+        if (this.connectionState === 'connecting') {
+          console.log('⏰ Socket connection timeout');
+          this.connectionState = 'disconnected';
+          this.emitEvent('connect_error', { message: 'Connection timeout' });
+          
+          if (this.socket) {
+            this.socket.disconnect();
+            this.socket = null;
+          }
+        }
+      }, 15000);
+
+    } catch (error) {
+      console.error('❌ Error connecting socket:', error);
+      this.connectionState = 'disconnected';
+      this.emitEvent('connect_error', error);
+    }
+  }
 
   private setupListeners() {
     if (!this.socket) return;
 
     this.socket.on('connect', () => {
-      console.log('✅ Socket connected');
-      this.emitEvent('connect', {});
+      console.log('✅ Socket connected successfully, ID:', this.socket?.id);
+      this.connectionState = 'connected';
+      this.reconnectAttempts = 0;
+      
+      if (this.connectionTimeout) {
+        clearTimeout(this.connectionTimeout);
+        this.connectionTimeout = null;
+      }
+      
+      this.emitEvent('connect', { socketId: this.socket?.id });
     });
 
-    this.socket.on('connect_error', (error) => {
-      console.error('❌ Socket connection error:', error);
+    this.socket.on('connect_error', (error: any) => {
+      console.error('❌ Socket connection error:', error.message);
+      this.connectionState = 'disconnected';
+      this.reconnectAttempts++;
+      
+      if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+        console.warn('⚠️ Max reconnect attempts reached');
+        this.emitEvent('connection_failed', { 
+          message: 'Max reconnect attempts reached',
+          attempts: this.reconnectAttempts 
+        });
+      }
+      
       this.emitEvent('connect_error', error);
     });
 
-    this.socket.on('disconnect', (reason) => {
-      console.log('❌ Socket disconnected:', reason);
-      this.emitEvent('disconnect', { reason });
+    this.socket.on('connected', (data: any) => {
+      console.log('✅ Server confirmed connection:', data);
+      this.emitEvent('connected', data);
     });
 
-    this.socket.on('new_message', (data) => {
-      console.log('📨 New message received:', data);
+    this.socket.on('disconnect', (reason: string) => {
+      console.log('❌ Socket disconnected:', reason);
+      this.connectionState = 'disconnected';
+      this.emitEvent('disconnect', { reason });
+      
+      // Attempt to reconnect if not manually disconnected
+      if (reason !== 'io client disconnect') {
+        setTimeout(() => {
+          if (!this.socket?.connected) {
+            console.log('🔄 Attempting to reconnect...');
+            this.connect();
+          }
+        }, 3000);
+      }
+    });
+
+    // CORE FIX: Handle incoming messages - ADD DEBUG LOGGING
+    this.socket.on('new_message', (data: any) => {
+      console.log('📨 New message received via socket:', {
+        conversationId: data.conversationId,
+        messageId: data._id,
+        senderId: data.sender?._id,
+        senderName: data.sender ? `${data.sender.first_name} ${data.sender.last_name}` : 'Unknown',
+        hasProfilePic: !!data.sender?.profile_picture_url,
+        content: data.content?.substring(0, 50) + '...'
+      });
+      
+      // FIX: Ensure sender object is complete
+      if (data.sender && !data.sender.profile_picture_url) {
+        console.log('⚠️ Socket message missing profile picture');
+      }
+      
       this.emitEvent('new_message', data);
     });
 
-    this.socket.on('message_sent', (data) => {
-      console.log('✅ Message sent confirmation:', data);
+    // Handle message sent confirmation
+    this.socket.on('message_sent', (data: any) => {
+      console.log('✅ Message sent confirmation:', {
+        messageId: data.messageId,
+        senderId: data.sender?._id
+      });
       this.emitEvent('message_sent', data);
     });
 
-    this.socket.on('conversation_updated', (data) => {
-      console.log('🔄 Conversation updated:', data);
-      this.emitEvent('conversation_updated', data);
-    });
-
-    this.socket.on('user_typing', (data) => {
+    // Handle typing indicators
+    this.socket.on('user_typing', (data: any) => {
       console.log('✍️ User typing:', data);
       this.emitEvent('user_typing', data);
     });
 
-    this.socket.on('user_stop_typing', (data) => {
-      console.log('⏹️ User stopped typing:', data);
+    this.socket.on('user_stop_typing', (data: any) => {
+      console.log('✋ User stopped typing:', data);
       this.emitEvent('user_stop_typing', data);
     });
 
-    this.socket.on('error', (error) => {
+    // Handle conversation events
+    this.socket.on('joined_conversation', (data: any) => {
+      console.log('✅ Joined conversation:', data);
+      this.emitEvent('joined_conversation', data);
+    });
+
+    this.socket.on('conversation_updated', (data: any) => {
+      console.log('🔄 Conversation updated:', data.conversationId);
+      this.emitEvent('conversation_updated', data);
+    });
+
+    // Handle errors
+    this.socket.on('error', (error: any) => {
       console.error('❌ Socket error:', error);
       this.emitEvent('error', error);
     });
+
+    this.socket.on('message_error', (error: any) => {
+      console.error('❌ Message error:', error);
+      this.emitEvent('message_error', error);
+    });
+
+    // Debug events
+    this.socket.on('ping', (data: any) => {
+      console.log('🏓 Ping received:', data);
+      this.socket?.emit('pong', { ...data, receivedAt: Date.now() });
+    });
+
+    this.socket.on('pong', (data: any) => {
+      console.log('🏓 Pong received:', data);
+    });
   }
 
-  joinConversation(conversationId: string) {
+  // Join a specific conversation room
+  joinConversation(conversationId: string, userId?: string) {
     if (this.socket?.connected) {
-      this.socket.emit('join_conversation', conversationId);
+      console.log(`🎯 Joining conversation: ${conversationId}`);
+      this.socket.emit('join_conversation', { 
+        conversationId, 
+        userId: userId || this.currentUserId || 'unknown' 
+      });
+    } else {
+      console.warn('⚠️ Cannot join conversation: Socket not connected');
     }
   }
 
+  // Leave a conversation room
   leaveConversation(conversationId: string) {
     if (this.socket?.connected) {
-      this.socket.emit('leave_conversation', conversationId);
+      console.log(`🚪 Leaving conversation: ${conversationId}`);
+      this.socket.emit('leave_conversation', { conversationId });
     }
   }
 
-  sendTyping(conversationId: string) {
+  // Send typing indicator
+  sendTyping(conversationId: string, userId?: string) {
     if (this.socket?.connected) {
-      this.socket.emit('typing', { conversationId });
+      this.socket.emit('typing_start', { 
+        conversationId, 
+        userId: userId || this.currentUserId || 'unknown' 
+      });
     }
   }
 
-  sendStopTyping(conversationId: string) {
+  // Send stop typing indicator
+  sendStopTyping(conversationId: string, userId?: string) {
     if (this.socket?.connected) {
-      this.socket.emit('stop_typing', { conversationId });
+      this.socket.emit('typing_stop', { 
+        conversationId, 
+        userId: userId || this.currentUserId || 'unknown' 
+      });
     }
   }
 
+  // Send a message via socket (for real-time delivery) - FIXED WITH COMPLETE SENDER DATA
   sendMessage(data: {
     conversationId: string;
     content: string;
     senderId: string;
+    senderName?: string;
     isEncrypted?: boolean;
     messageHash?: string;
     replyTo?: string;
@@ -309,7 +306,43 @@ async testConnection() {
     createdAt?: string;
   }) {
     if (this.socket?.connected) {
-      this.socket.emit('send_message', data);
+      // Use stored user data for complete sender information
+      const senderData = this.currentUserData || {
+        _id: data.senderId,
+        first_name: data.senderName?.split(' ')[0] || 'User',
+        last_name: data.senderName?.split(' ')[1] || '',
+        profile_picture_url: null
+      };
+      
+      const socketPayload = {
+        conversationId: data.conversationId,
+        message: {
+          content: data.content,
+          isEncrypted: data.isEncrypted || false,
+          messageHash: data.messageHash || null,
+          replyTo: data.replyTo || null,
+          sender: senderData, // Use complete sender data
+          _id: data.messageId,
+          createdAt: data.createdAt || new Date().toISOString()
+        }
+      };
+      
+      console.log('📤 Sending message via socket:', {
+        conversationId: data.conversationId,
+        messageId: data.messageId,
+        senderId: senderData._id,
+        senderName: `${senderData.first_name} ${senderData.last_name}`,
+        hasProfilePic: !!senderData.profile_picture_url,
+        contentLength: data.content.length
+      });
+      
+      this.socket.emit('send_message', socketPayload);
+    } else {
+      console.warn('⚠️ Socket not connected, message not sent via socket');
+      this.emitEvent('socket_disconnected', { 
+        message: 'Socket not connected', 
+        data 
+      });
     }
   }
 
@@ -334,24 +367,115 @@ async testConnection() {
   private emitEvent(event: string, data: any) {
     const callbacks = this.listeners.get(event);
     if (callbacks) {
-      callbacks.forEach(callback => callback(data));
+      // Use setTimeout to ensure async execution
+      setTimeout(() => {
+        callbacks.forEach(callback => {
+          try {
+            callback(data);
+          } catch (error) {
+            console.error(`❌ Error in ${event} callback:`, error);
+          }
+        });
+      }, 0);
     }
   }
 
+  // Clean disconnect
   disconnect() {
+    console.log('🔌 Manually disconnecting socket');
+    
+    if (this.connectionTimeout) {
+      clearTimeout(this.connectionTimeout);
+      this.connectionTimeout = null;
+    }
+    
     if (this.socket) {
       this.socket.disconnect();
       this.socket = null;
-      this.listeners.clear();
     }
+    
+    this.connectionState = 'disconnected';
+    this.listeners.clear();
+    this.currentUserId = null;
+    this.currentUserData = null;
   }
 
+  // Check if connected
   isConnected() {
     return this.socket?.connected || false;
   }
 
+  // Get socket instance
   getSocket() {
     return this.socket;
+  }
+
+  // Get connection state
+  getConnectionState() {
+    return this.connectionState;
+  }
+
+  // Get current user ID
+  getCurrentUserId() {
+    return this.currentUserId;
+  }
+
+  // Get current user data
+  getCurrentUserData() {
+    return this.currentUserData;
+  }
+
+  // Test connection
+  async testConnection() {
+    console.log('🔍 Testing socket connection...');
+    
+    return new Promise((resolve) => {
+      const testTimeout = setTimeout(() => {
+        resolve({
+          connected: this.isConnected(),
+          socketId: this.socket?.id,
+          connectionState: this.connectionState,
+          userId: this.currentUserId
+        });
+      }, 1000);
+    });
+  }
+
+
+  onIncomingCall(callback: (data: any) => void) {
+    this.socket?.on('incoming_call', callback);
+  }
+
+  offIncomingCall(callback: (data: any) => void) {
+    this.socket?.off('incoming_call', callback);
+  }
+
+  onCallAccepted(callback: (data: any) => void) {
+    this.socket?.on('call_accepted', callback);
+  }
+
+  onCallRejected(callback: (data: any) => void) {
+    this.socket?.on('call_rejected', callback);
+  }
+
+  onCallEnded(callback: (data: any) => void) {
+    this.socket?.on('call_ended', callback);
+  }
+
+  acceptCall(callId: string) {
+    this.socket?.emit('accept_call', callId);
+  }
+
+  rejectCall(callId: string) {
+    this.socket?.emit('reject_call', callId);
+  }
+
+  endCall(callId: string) {
+    this.socket?.emit('end_call', callId);
+  }
+
+  initiateCallNotification(data: any) {
+    this.socket?.emit('initiate_call', data);
   }
 }
 

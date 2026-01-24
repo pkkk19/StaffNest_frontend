@@ -341,28 +341,28 @@ const AddContactModal: React.FC<AddContactModalProps> = ({
               </TouchableOpacity>
             </ModalSection>
 
-            {/* Scan QR Code Option */}
-            <ModalSection title="Scan QR Code">
+            {/* COMMENTED OUT: Scan QR Code Option */}
+            {/* <ModalSection title="Scan QR Code">
               <ModalOption
                 icon={<Ionicons name="scan" size={24} color="#007AFF" />}
                 title="Scan QR Code"
                 description="Scan a friend's QR code to add them"
                 onPress={onScanQRCode}
               />
-            </ModalSection>
+            </ModalSection> */}
 
-            {/* Search Colleagues */}
-            <ModalSection title="Search Colleagues">
+            {/* COMMENTED OUT: Search Colleagues */}
+            {/* <ModalSection title="Search Colleagues">
               <ModalOption
                 icon={<Ionicons name="search" size={24} color="#007AFF" />}
                 title="Search Company Directory"
                 description="Find and add people from your company"
                 onPress={onClose}
               />
-            </ModalSection>
+            </ModalSection> */}
 
-            {/* QR Code Section */}
-            <ModalSection title="QR Code">
+            {/* COMMENTED OUT: QR Code Section */}
+            {/* <ModalSection title="QR Code">
               {qrCodeData ? (
                 <View style={[styles.qrSection, isDarkTheme && styles.darkQrSection]}>
                   <ViewShot ref={viewShotRef} options={{ format: 'png', quality: 1.0 }}>
@@ -393,7 +393,7 @@ const AddContactModal: React.FC<AddContactModalProps> = ({
                   </View>
                   
                   {/* Alternative text-based QR code */}
-                  <View style={{ marginTop: 16 }}>
+                  {/* <View style={{ marginTop: 16 }}>
                     <Text style={[styles.modalSectionTitle, isDarkTheme && styles.darkText, { marginBottom: 8 }]}>
                       Alternative (Text Version):
                     </Text>
@@ -415,10 +415,10 @@ const AddContactModal: React.FC<AddContactModalProps> = ({
                   disabled={generatingQR}
                 />
               )}
-            </ModalSection>
+            </ModalSection> */}
 
-            {/* Invite Link Section */}
-            <ModalSection title="Invite Link">
+            {/* COMMENTED OUT: Invite Link Section */}
+            {/* <ModalSection title="Invite Link">
               {inviteLink ? (
                 <View style={[styles.inviteSection, isDarkTheme && styles.darkInviteSection]}>
                   <View style={[styles.inviteLinkContainer, isDarkTheme && styles.darkInviteLinkContainer]}>
@@ -453,7 +453,7 @@ const AddContactModal: React.FC<AddContactModalProps> = ({
                   onPress={onGenerateInviteLink}
                 />
               )}
-            </ModalSection>
+            </ModalSection> */}
 
             {/* Pending Requests */}
             <ModalSection title="Pending Requests">

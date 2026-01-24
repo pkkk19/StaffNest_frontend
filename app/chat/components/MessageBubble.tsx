@@ -1,26 +1,25 @@
-// app/chat/components/MessageBubble.tsx
+// app/chat/components/MessageBubble.tsx - WITH READ/UNREAD INDICATORS
 import React, { useState } from 'react';
-import { 
-  View, 
-  Text, 
-  Image, 
-  StyleSheet, 
+import {
+  View,
+  Text,
+  StyleSheet,
   TouchableOpacity,
-  Animated,
-  Dimensions,
-  Platform // ADDED THIS IMPORT
+  Alert,
+  Image,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import Swipeable from 'react-native-gesture-handler/Swipeable';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useChatTheme } from '../hooks/useChatTheme';
-
-const { width } = Dimensions.get('window');
+import { useAuth } from '@/contexts/AuthContext';
 
 interface MessageBubbleProps {
   message: any;
   isCurrentUser: boolean;
   showAvatar: boolean;
-  user: any;
+  user?: any;
+  conversation?: any; // Add conversation prop
   onLongPress?: () => void;
   onReply?: () => void;
   onEdit?: () => void;
@@ -28,349 +27,419 @@ interface MessageBubbleProps {
   showActions?: boolean;
 }
 
-export const MessageBubble: React.FC<MessageBubbleProps> = ({
+export function MessageBubble({
   message,
   isCurrentUser,
   showAvatar,
   user,
+  conversation,
   onLongPress,
   onReply,
   onEdit,
   onDelete,
-  showActions = false
-}) => {
+  showActions = false,
+}: MessageBubbleProps) {
   const { colors, isDark } = useChatTheme();
-  const [swipeableRef, setSwipeableRef] = useState<any>(null);
+  const [imageError, setImageError] = useState(false);
+  const { user: currentUser } = useAuth();
 
-  const styles = createStyles(colors, isCurrentUser, isDark);
-
-  const formatMessageTime = (timestamp: string) => {
-    const date = new Date(timestamp);
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const formatTime = (dateString: string) => {
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleTimeString([], { 
+        hour: '2-digit', 
+        minute: '2-digit',
+        hour12: true 
+      }).toLowerCase();
+    } catch (error) {
+      return '';
+    }
   };
 
-  const renderLeftActions = () => {
-    if (isCurrentUser) return null;
-    
-    return (
-      <TouchableOpacity 
-        style={styles.replyAction}
-        onPress={() => {
-          swipeableRef?.close();
-          onReply?.();
-        }}
-      >
-        <Ionicons name="arrow-undo" size={20} color="white" />
-        <Text style={styles.actionText}>Reply</Text>
-      </TouchableOpacity>
+  const getSenderName = () => {
+    if (isCurrentUser) return 'You';
+    if (message.sender?.first_name) {
+      return `${message.sender.first_name} ${message.sender.last_name || ''}`;
+    }
+    return 'User';
+  };
+
+  const getProfileImage = () => {
+    if (isCurrentUser && currentUser?.profile_picture_url) {
+      return currentUser.profile_picture_url;
+    }
+    if (!isCurrentUser && message.sender?.profile_picture_url) {
+      return message.sender.profile_picture_url;
+    }
+    return null;
+  };
+
+  // Calculate read/unread status
+  const getReadStatus = () => {
+    if (!isCurrentUser || !conversation || !message.readBy) {
+      return null;
+    }
+
+    const participants = conversation.participants || [];
+    const otherParticipants = participants.filter(
+      (p: any) => p._id !== currentUser?._id
     );
-  };
 
-  const renderRightActions = () => {
-    if (!isCurrentUser) return null;
-    
-    return (
-      <View style={styles.rightActions}>
-        <TouchableOpacity 
-          style={[styles.actionButton, { backgroundColor: '#4ECDC4' }]}
-          onPress={() => {
-            swipeableRef?.close();
-            onEdit?.();
-          }}
-        >
-          <Ionicons name="create-outline" size={18} color="white" />
-          <Text style={styles.actionText}>Edit</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={[styles.actionButton, { backgroundColor: '#FF6B6B' }]}
-          onPress={() => {
-            swipeableRef?.close();
-            onDelete?.();
-          }}
-        >
-          <Ionicons name="trash-outline" size={18} color="white" />
-          <Text style={styles.actionText}>Delete</Text>
-        </TouchableOpacity>
-      </View>
+    if (otherParticipants.length === 0) return null;
+
+    // Check if all other participants have read the message
+    const allParticipantsRead = otherParticipants.every((participant: any) =>
+      message.readBy?.includes(participant._id)
     );
+
+    // Check if some but not all have read
+    const someParticipantsRead = otherParticipants.some((participant: any) =>
+      message.readBy?.includes(participant._id)
+    );
+
+    return {
+      isRead: allParticipantsRead,
+      isDelivered: someParticipantsRead,
+      readByCount: message.readBy?.filter((id: string) => 
+        otherParticipants.some((p: any) => p._id === id)
+      ).length || 0,
+      totalParticipants: otherParticipants.length
+    };
   };
 
-  const MessageContent = () => (
-    <View style={styles.messageContainer}>
-      {!isCurrentUser && showAvatar && (
-        <View style={styles.avatarContainer}>
-          {message.sender?.profile_picture_url ? (
-            <Image 
-              source={{ uri: message.sender.profile_picture_url }} 
-              style={styles.avatarImage} 
-            />
-          ) : (
-            <View style={styles.avatarPlaceholder}>
-              <Text style={styles.avatarText}>
-                {message.sender?.first_name?.charAt(0)}{message.sender?.last_name?.charAt(0)}
-              </Text>
-            </View>
+  const readStatus = getReadStatus();
+
+  const renderReadStatus = () => {
+    if (!readStatus) return null;
+
+    if (readStatus.isRead) {
+      return (
+        <View style={styles.readStatusContainer}>
+          <Ionicons name="checkmark-done" size={14} color="#10B981" />
+          <Text style={styles.readStatusText}>Read</Text>
+        </View>
+      );
+    } else if (readStatus.isDelivered) {
+      return (
+        <View style={styles.readStatusContainer}>
+          <Ionicons name="checkmark-done" size={14} color="#3B82F6" />
+          {readStatus.readByCount > 0 && readStatus.totalParticipants > 1 && (
+            <Text style={styles.readStatusText}>
+              Seen by {readStatus.readByCount} of {readStatus.totalParticipants}
+            </Text>
           )}
         </View>
-      )}
+      );
+    } else {
+      return (
+        <View style={styles.readStatusContainer}>
+          <Ionicons name="checkmark" size={14} color={colors.textTertiary} />
+          <Text style={styles.readStatusText}>Sent</Text>
+        </View>
+      );
+    }
+  };
+
+  const renderAvatar = () => {
+    const profileImage = getProfileImage();
+    
+    if (!showAvatar) {
+      return <View style={{ width: 36 }} />;
+    }
+
+    if (profileImage && !imageError) {
+      return (
+        <Image
+          source={{ uri: profileImage }}
+          style={styles.avatarImage}
+          onError={() => setImageError(true)}
+        />
+      );
+    }
+
+    return (
+      <LinearGradient
+        colors={isCurrentUser ? ['#4F46E5', '#7C3AED'] : ['#3B82F6', '#1D4ED8']}
+        style={styles.avatarGradient}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      >
+        <Text style={styles.avatarText}>
+          {getSenderName()
+            .split(' ')
+            .map(n => n[0])
+            .join('')
+            .toUpperCase()}
+        </Text>
+      </LinearGradient>
+    );
+  };
+
+  return (
+    <View style={[
+      styles.container,
+      isCurrentUser ? styles.containerCurrentUser : styles.containerOtherUser
+    ]}>
+      {!isCurrentUser && renderAvatar()}
       
-      <View style={styles.bubbleContainer}>
+      <View style={styles.messageWrapper}>
         {!isCurrentUser && showAvatar && (
-          <Text style={styles.senderName}>
-            {message.sender?.first_name} {message.sender?.last_name}
-          </Text>
+          <Text style={styles.senderName}>{getSenderName()}</Text>
         )}
         
         <TouchableOpacity
-          style={styles.messageBubble}
           onLongPress={onLongPress}
           activeOpacity={0.9}
+          delayLongPress={300}
         >
-          {message.replyTo && (
-            <View style={styles.replyToContainer}>
-              <View style={styles.replyToIndicator} />
-              <Text style={styles.replyToText}>
-                {message.replyTo.content}
+          <LinearGradient
+            colors={
+              isCurrentUser 
+                ? ['#4F46E5', '#7C3AED']
+                : isDark 
+                  ? ['#374151', '#4B5563']
+                  : ['#FFFFFF', '#F9FAFB']
+            }
+            style={[
+              styles.messageBubble,
+              isCurrentUser 
+                ? styles.messageBubbleCurrentUser
+                : styles.messageBubbleOtherUser,
+              showActions && styles.messageBubbleHighlighted
+            ]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          >
+            {message.replyTo && (
+              <View style={styles.replyPreview}>
+                <View style={styles.replyBar} />
+                <View style={styles.replyContent}>
+                  <Text style={styles.replySender}>
+                    {message.replyTo.sender?._id === currentUser?._id 
+                      ? 'You' 
+                      : message.replyTo.sender?.first_name || 'User'}
+                  </Text>
+                  <Text 
+                    style={styles.replyText}
+                    numberOfLines={2}
+                  >
+                    {message.replyTo.content}
+                  </Text>
+                </View>
+              </View>
+            )}
+            
+            <Text style={[
+              styles.messageText,
+              isCurrentUser ? styles.messageTextCurrentUser : styles.messageTextOtherUser
+            ]}>
+              {message.content}
+            </Text>
+            
+            {message.edited && (
+              <Text style={styles.editedText}>(edited)</Text>
+            )}
+            
+            <View style={styles.messageFooter}>
+              <Text style={[
+                styles.messageTime,
+                isCurrentUser ? styles.messageTimeCurrentUser : styles.messageTimeOtherUser
+              ]}>
+                {formatTime(message.createdAt)}
               </Text>
+              {renderReadStatus()}
             </View>
-          )}
-          
-          <Text style={styles.messageText}>
-            {message.content || ''}
-          </Text>
-          
-          {message.edited && (
-            <Text style={styles.editedText}>(edited)</Text>
-          )}
+          </LinearGradient>
         </TouchableOpacity>
-        
-        <View style={styles.messageFooter}>
-          <Text style={styles.messageTime}>
-            {message.createdAt ? formatMessageTime(message.createdAt) : ''}
-          </Text>
-          {isCurrentUser && (
-            <Ionicons 
-              name={message.readBy?.length > 1 ? 'checkmark-done' : 'checkmark'} 
-              size={14} 
-              color={message.readBy?.length > 1 ? colors.statusRead : colors.statusUnread} 
-              style={styles.statusIcon} 
-            />
-          )}
-        </View>
+
+        {showActions && (
+          <View style={styles.actionsContainer}>
+            <TouchableOpacity 
+              style={styles.actionButton} 
+              onPress={onReply}
+            >
+              <Ionicons name="arrow-undo" size={18} color={colors.textTertiary} />
+              <Text style={styles.actionText}>Reply</Text>
+            </TouchableOpacity>
+            
+            {isCurrentUser && (
+              <>
+                <TouchableOpacity 
+                  style={styles.actionButton} 
+                  onPress={onEdit}
+                >
+                  <Ionicons name="create-outline" size={18} color={colors.textTertiary} />
+                  <Text style={styles.actionText}>Edit</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  style={[styles.actionButton, styles.deleteButton]} 
+                  onPress={onDelete}
+                >
+                  <Ionicons name="trash-outline" size={18} color="#EF4444" />
+                  <Text style={[styles.actionText, styles.deleteText]}>Delete</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        )}
       </View>
+      
+      {isCurrentUser && showAvatar && renderAvatar()}
     </View>
   );
+}
 
-  if (showActions) {
-    return (
-      <View style={styles.messageActionsOverlay}>
-        <MessageContent />
-        <View style={styles.messageActions}>
-          <TouchableOpacity style={styles.actionButtonSmall} onPress={onReply}>
-            <Ionicons name="arrow-undo" size={20} color={colors.currentUserBubble} />
-            <Text style={styles.actionTextSmall}>Reply</Text>
-          </TouchableOpacity>
-          
-          {isCurrentUser && (
-            <>
-              <TouchableOpacity style={styles.actionButtonSmall} onPress={onEdit}>
-                <Ionicons name="create-outline" size={20} color={colors.currentUserBubble} />
-                <Text style={styles.actionTextSmall}>Edit</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity style={styles.actionButtonSmall} onPress={onDelete}>
-                <Ionicons name="trash-outline" size={20} color="#FF6B6B" />
-                <Text style={[styles.actionTextSmall, { color: '#FF6B6B' }]}>Delete</Text>
-              </TouchableOpacity>
-            </>
-          )}
-          
-          <TouchableOpacity 
-            style={[styles.actionButtonSmall, { backgroundColor: colors.border }]} 
-            onPress={() => {}}
-          >
-            <Ionicons name="copy-outline" size={20} color={colors.textPrimary} />
-            <Text style={[styles.actionTextSmall, { color: colors.textPrimary }]}>Copy</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  }
-
-  if (Platform.OS !== 'web') {
-    return (
-      <Swipeable
-        ref={(ref) => setSwipeableRef(ref)}
-        renderLeftActions={renderLeftActions}
-        renderRightActions={renderRightActions}
-        friction={2}
-        overshootFriction={8}
-        containerStyle={styles.swipeableContainer}
-      >
-        <MessageContent />
-      </Swipeable>
-    );
-  }
-
-  return <MessageContent />;
-};
-
-const createStyles = (colors: any, isCurrentUser: boolean, isDark: boolean) => StyleSheet.create({
-  swipeableContainer: {
-    marginVertical: 4,
-  },
-  messageContainer: {
+const styles = StyleSheet.create({
+  container: {
     flexDirection: 'row',
-    marginBottom: 8,
+    marginVertical: 4,
     alignItems: 'flex-end',
-    justifyContent: isCurrentUser ? 'flex-end' : 'flex-start',
-    paddingHorizontal: 8,
   },
-  avatarContainer: {
-    marginRight: 8,
+  containerCurrentUser: {
+    justifyContent: 'flex-end',
   },
-  avatarPlaceholder: {
+  containerOtherUser: {
+    justifyContent: 'flex-start',
+  },
+  avatarGradient: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: colors.currentUserBubble,
     justifyContent: 'center',
     alignItems: 'center',
+    marginHorizontal: 8,
   },
   avatarImage: {
     width: 36,
     height: 36,
     borderRadius: 18,
+    marginHorizontal: 8,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
   },
   avatarText: {
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '600',
   },
-  bubbleContainer: {
+  messageWrapper: {
     maxWidth: '75%',
-    alignItems: isCurrentUser ? 'flex-end' : 'flex-start',
   },
   senderName: {
     fontSize: 12,
-    color: colors.textTertiary,
+    color: '#6B7280',
     marginBottom: 4,
-    marginLeft: 12,
+    marginLeft: 8,
     fontWeight: '500',
   },
   messageBubble: {
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 20,
-    backgroundColor: isCurrentUser ? colors.currentUserBubble : colors.otherUserBubble,
-    ...(isCurrentUser ? {
-      borderBottomRightRadius: 6,
-    } : {
-      borderBottomLeftRadius: 6,
-    }),
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: isDark ? 0.1 : 0.08,
-    shadowRadius: 4,
-    elevation: 3,
+    borderWidth: 1,
   },
-  replyToContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-    paddingLeft: 8,
-    borderLeftWidth: 3,
-    borderLeftColor: colors.currentUserBubble,
+  messageBubbleCurrentUser: {
+    borderBottomRightRadius: 4,
+    borderColor: 'rgba(79, 70, 229, 0.2)',
   },
-  replyToIndicator: {
-    width: 3,
-    height: '100%',
-    backgroundColor: colors.currentUserBubble,
-    marginRight: 8,
+  messageBubbleOtherUser: {
+    borderBottomLeftRadius: 4,
+    borderColor: 'rgba(209, 213, 219, 0.5)',
   },
-  replyToText: {
-    flex: 1,
-    fontSize: 12,
-    color: colors.textTertiary,
-    fontStyle: 'italic',
+  messageBubbleHighlighted: {
+    borderWidth: 2,
+    borderColor: '#3B82F6',
   },
   messageText: {
     fontSize: 16,
-    lineHeight: 20,
-    color: isCurrentUser ? '#FFFFFF' : colors.textPrimary,
+    lineHeight: 22,
   },
-  editedText: {
-    fontSize: 11,
-    color: colors.textTertiary,
-    fontStyle: 'italic',
-    marginTop: 4,
+  messageTextCurrentUser: {
+    color: '#FFFFFF',
+  },
+  messageTextOtherUser: {
+    color: '#111827',
   },
   messageFooter: {
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 4,
-    paddingHorizontal: 4,
+    gap: 6,
   },
   messageTime: {
     fontSize: 11,
-    color: colors.textTertiary,
-    marginRight: 4,
   },
-  statusIcon: {
+  messageTimeCurrentUser: {
+    color: 'rgba(255, 255, 255, 0.7)',
+  },
+  messageTimeOtherUser: {
+    color: '#6B7280',
+  },
+  readStatusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  readStatusText: {
+    fontSize: 10,
+    color: 'rgba(255, 255, 255, 0.7)',
     marginLeft: 2,
   },
-  replyAction: {
-    width: 80,
-    height: '100%',
-    backgroundColor: colors.currentUserBubble,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 20,
-    marginRight: 8,
+  editedText: {
+    fontSize: 10,
+    color: 'rgba(255, 255, 255, 0.7)',
+    fontStyle: 'italic',
+    marginTop: 2,
   },
-  rightActions: {
+  actionsContainer: {
     flexDirection: 'row',
-    height: '100%',
+    marginTop: 8,
     marginLeft: 8,
+    gap: 12,
   },
   actionButton: {
-    width: 80,
-    justifyContent: 'center',
+    flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 20,
-    marginLeft: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 16,
+    gap: 4,
   },
   actionText: {
-    color: 'white',
-    fontSize: 10,
-    marginTop: 4,
+    fontSize: 12,
+    color: '#6B7280',
     fontWeight: '500',
   },
-  messageActionsOverlay: {
-    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.02)',
-    borderRadius: 12,
-    margin: 4,
+  deleteButton: {
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
   },
-  messageActions: {
+  deleteText: {
+    color: '#EF4444',
+  },
+  replyPreview: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
+    marginBottom: 8,
   },
-  actionButtonSmall: {
-    alignItems: 'center',
-    padding: 8,
+  replyBar: {
+    width: 3,
+    backgroundColor: '#3B82F6',
+    borderRadius: 2,
+    marginRight: 8,
   },
-  actionTextSmall: {
-    fontSize: 10,
-    color: colors.currentUserBubble,
-    marginTop: 4,
-    fontWeight: '500',
+  replyContent: {
+    flex: 1,
+  },
+  replySender: {
+    fontSize: 12,
+    color: '#3B82F6',
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  replyText: {
+    fontSize: 13,
+    color: '#6B7280',
+    lineHeight: 16,
   },
 });

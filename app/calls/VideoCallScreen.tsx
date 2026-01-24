@@ -1,550 +1,400 @@
-// // app/calls/VideoCallScreen.tsx
-// import React, { useState, useEffect, useRef } from 'react';
-// import {
-//   View,
-//   Text,
-//   StyleSheet,
-//   TouchableOpacity,
-//   SafeAreaView,
-//   Dimensions,
-//   Platform,
-//   ScrollView,
-//   Modal,
-//   TextInput,
-//   FlatList,
-// } from 'react-native';
-// import { Ionicons, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
-// import { useVideo } from '@/contexts/VideoContext';
-// import { HMSPeer } from '@100mslive/react-native-hms';
+// app/calls/VideoCallScreen.tsx
+import React, { useEffect, useState, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  SafeAreaView,
+  StatusBar,
+  TouchableOpacity,
+  Dimensions,
+  Platform,
+  Alert,
+} from 'react-native';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
+import { CameraView, useCameraPermissions } from 'expo-camera';
+import { useVideo } from '@/contexts/VideoContext';
 
-// const { width, height } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 
-// export const VideoCallScreen = () => {
-//   const {
-//     isInCall,
-//     callType,
-//     currentRoom,
-//     localPeer,
-//     remotePeers,
-//     messages,
-//     leaveRoom,
-//     toggleMute,
-//     toggleCamera,
-//     toggleSpeaker,
-//     switchCamera,
-//     toggleScreenShare,
-//     sendMessage,
-//     raiseHand,
-//     isLocalAudioMuted,
-//     isLocalVideoMuted,
-//     isScreenSharing,
-//     isRecording,
-//     isHandRaised,
-//     showVideoScreen,
-//     setShowVideoScreen,
-//   } = useVideo();
+export default function VideoCallScreen() {
+  const router = useRouter();
+  const params = useLocalSearchParams();
+  const { activeCall, endCall, isMuted, toggleMute, isVideoEnabled, toggleVideo, isSpeakerEnabled, toggleSpeaker } = useVideo();
+  
+  const [callDuration, setCallDuration] = useState(0);
+  const [callStatus, setCallStatus] = useState('Connecting...');
+  const [isConnected, setIsConnected] = useState(false);
+  const [permission, requestPermission] = useCameraPermissions();
+  const [facing, setFacing] = useState<'front' | 'back'>('front');
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-//   const [messageInput, setMessageInput] = useState('');
-//   const [showChat, setShowChat] = useState(false);
-//   const [showParticipants, setShowParticipants] = useState(false);
-//   const [callDuration, setCallDuration] = useState(0);
-//   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-//   useEffect(() => {
-//     if (isInCall) {
-//       timerRef.current = setInterval(() => {
-//         setCallDuration(prev => prev + 1);
-//       }, 1000);
-//     }
-
-//     return () => {
-//       if (timerRef.current) {
-//         clearInterval(timerRef.current);
-//       }
-//     };
-//   }, [isInCall]);
-
-//   const formatDuration = (seconds: number) => {
-//     const mins = Math.floor(seconds / 60);
-//     const secs = seconds % 60;
-//     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-//   };
-
-//   const handleSendMessage = () => {
-//     if (messageInput.trim()) {
-//       sendMessage(messageInput);
-//       setMessageInput('');
-//     }
-//   };
-
-//   const handleLeaveCall = () => {
-//     leaveRoom();
-//     setShowVideoScreen(false);
-//   };
-
-//   if (!isInCall || !showVideoScreen) {
-//     return null;
-//   }
-
-//   // Render peer video/audio with proper null checks
-//   const renderPeer = (peer: HMSPeer | null, isLocal: boolean = false) => {
-//     if (!peer) return null;
+  useEffect(() => {
+    console.log('VideoCallScreen params:', params);
     
-//     const peerName = peer.name || 'Anonymous';
-//     const handRaised = peer.metadata ? JSON.parse(peer.metadata)?.isHandRaised : false;
+    if (!permission?.granted) {
+      requestPermission();
+    }
     
-//     return (
-//       <View key={peer.peerID} style={styles.peerContainer}>
-//         <View style={[styles.videoTile, isLocal && styles.localTile]}>
-//           {!isLocalVideoMuted || !isLocal ? (
-//             <View style={styles.videoPlaceholder}>
-//               <Ionicons name="videocam" size={40} color="#666" />
-//               <Text style={styles.peerName}>
-//                 {peerName} {isLocal ? '(You)' : ''}
-//               </Text>
-//               {handRaised && (
-//                 <View style={styles.handRaisedBadge}>
-//                   <FontAwesome5 name="hand-paper" size={16} color="white" />
-//                 </View>
-//               )}
-//             </View>
-//           ) : (
-//             <View style={styles.audioOnlyTile}>
-//               <View style={styles.avatar}>
-//                 <Text style={styles.avatarText}>
-//                   {peerName.charAt(0).toUpperCase()}
-//                 </Text>
-//               </View>
-//               <Text style={styles.peerName}>
-//                 {peerName} {isLocal ? '(You)' : ''}
-//               </Text>
-//               {isLocalAudioMuted && isLocal && (
-//                 <View style={styles.mutedBadge}>
-//                   <Ionicons name="mic-off" size={16} color="white" />
-//                 </View>
-//               )}
-//             </View>
-//           )}
-//         </View>
-//       </View>
-//     );
-//   };
+    const connectTimeout = setTimeout(() => {
+      setCallStatus('Connected');
+      setIsConnected(true);
+    }, 2000);
+    
+    intervalRef.current = setInterval(() => {
+      setCallDuration(prev => prev + 1);
+    }, 1000);
 
-//   return (
-//     <SafeAreaView style={styles.container}>
-//       {/* Header */}
-//       <View style={styles.header}>
-//         <View style={styles.headerLeft}>
-//           <Text style={styles.roomName}>
-//             {currentRoom?.name || 'Video Call'}
-//           </Text>
-//           <Text style={styles.callInfo}>
-//             {callType === 'screen' ? 'Screen Sharing' : 
-//              callType === 'voice' ? 'Voice Call' : 'Video Call'} • {formatDuration(callDuration)}
-//           </Text>
-//         </View>
-//         <View style={styles.headerRight}>
-//           {isRecording && (
-//             <View style={styles.recordingBadge}>
-//               <View style={styles.recordingDot} />
-//               <Text style={styles.recordingText}>REC</Text>
-//             </View>
-//           )}
-//           <Text style={styles.participantCount}>
-//             {remotePeers.length + (localPeer ? 1 : 0)} online
-//           </Text>
-//         </View>
-//       </View>
+    return () => {
+      clearTimeout(connectTimeout);
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, [permission]);
 
-//       {/* Main Video Area */}
-//       <ScrollView style={styles.videoArea} contentContainerStyle={styles.videoGrid}>
-//         {/* Local Peer */}
-//         {renderPeer(localPeer, true)}
-        
-//         {/* Remote Peers */}
-//         {remotePeers.map(peer => renderPeer(peer))}
-        
-//         {/* Empty state */}
-//         {remotePeers.length === 0 && (
-//           <View style={styles.waitingContainer}>
-//             <Ionicons name="people" size={60} color="#666" />
-//             <Text style={styles.waitingText}>
-//               Waiting for others to join...
-//             </Text>
-//             <Text style={styles.roomIdText}>
-//               Room: {currentRoom?.id?.substring(0, 8)}...
-//             </Text>
-//           </View>
-//         )}
-//       </ScrollView>
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
 
-//       {/* Controls */}
-//       <View style={styles.controlsContainer}>
-//         <TouchableOpacity 
-//           style={[styles.controlButton, isLocalAudioMuted && styles.controlButtonActive]} 
-//           onPress={toggleMute}
-//         >
-//           <Ionicons 
-//             name={isLocalAudioMuted ? "mic-off" : "mic"} 
-//             size={24} 
-//             color="white" 
-//           />
-//           <Text style={styles.controlText}>Mic</Text>
-//         </TouchableOpacity>
+  const handleEndCall = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    if (activeCall?.callId) {
+      endCall(activeCall.callId);
+    }
+    router.back();
+  };
 
-//         <TouchableOpacity 
-//           style={[styles.controlButton, isLocalVideoMuted && styles.controlButtonActive]} 
-//           onPress={toggleCamera}
-//         >
-//           <Ionicons 
-//             name={isLocalVideoMuted ? "videocam-off" : "videocam"} 
-//             size={24} 
-//             color="white" 
-//           />
-//           <Text style={styles.controlText}>Camera</Text>
-//         </TouchableOpacity>
+  const toggleCameraFacing = () => {
+    setFacing(current => (current === 'back' ? 'front' : 'back'));
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
 
-//         <TouchableOpacity 
-//           style={[styles.controlButton, isScreenSharing && styles.controlButtonActive]} 
-//           onPress={toggleScreenShare}
-//         >
-//           <Ionicons 
-//             name="desktop-outline" 
-//             size={24} 
-//             color="white" 
-//           />
-//           <Text style={styles.controlText}>Share</Text>
-//         </TouchableOpacity>
+  if (!permission) {
+    return (
+      <View style={styles.container}>
+        <Text>Requesting camera permission...</Text>
+      </View>
+    );
+  }
 
-//         <TouchableOpacity 
-//           style={[styles.controlButton, isHandRaised && styles.controlButtonActive]} 
-//           onPress={raiseHand}
-//         >
-//           <FontAwesome5 
-//             name="hand-paper" 
-//             size={20} 
-//             color="white" 
-//           />
-//           <Text style={styles.controlText}>Hand</Text>
-//         </TouchableOpacity>
+  if (!permission.granted) {
+    return (
+      <View style={styles.permissionContainer}>
+        <Ionicons name="videocam-outline" size={80} color="#666" />
+        <Text style={styles.permissionTitle}>Camera Permission Required</Text>
+        <Text style={styles.permissionText}>
+          This app needs camera access to make video calls.
+        </Text>
+        <TouchableOpacity style={styles.permissionButton} onPress={requestPermission}>
+          <Text style={styles.permissionButtonText}>Grant Permission</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+          <Text style={styles.backButtonText}>Go Back</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
-//         <TouchableOpacity 
-//           style={styles.controlButton} 
-//           onPress={() => setShowChat(!showChat)}
-//         >
-//           <Ionicons name="chatbubble-outline" size={24} color="white" />
-//           <Text style={styles.controlText}>Chat</Text>
-//         </TouchableOpacity>
+  return (
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="light-content" />
+      
+      <View style={styles.header}>
+        <View style={styles.statusContainer}>
+          <View style={[styles.statusDot, { backgroundColor: isConnected ? '#10B981' : '#F59E0B' }]} />
+          <Text style={styles.callStatus}>{callStatus}</Text>
+        </View>
+        <Text style={styles.callTimer}>{formatTime(callDuration)}</Text>
+        <Text style={styles.callerName}>
+          {activeCall?.callerName || params.callerName || 'Unknown Caller'}
+        </Text>
+        <Text style={styles.callType}>
+          {activeCall?.callType === 'voice' ? 'Voice Call' : 'Video Call'}
+        </Text>
+      </View>
 
-//         <TouchableOpacity 
-//           style={[styles.controlButton, styles.leaveButton]} 
-//           onPress={handleLeaveCall}
-//         >
-//           <Ionicons name="call" size={24} color="white" />
-//           <Text style={styles.controlText}>Leave</Text>
-//         </TouchableOpacity>
-//       </View>
+      <View style={styles.cameraContainer}>
+        {isVideoEnabled ? (
+          <CameraView
+            style={styles.camera}
+            facing={facing}
+            mode="video"
+            mute={isMuted}
+          />
+        ) : (
+          <View style={styles.cameraPlaceholder}>
+            <Ionicons name="videocam-off" size={60} color="#666" />
+            <Text style={styles.cameraPlaceholderText}>Camera Off</Text>
+          </View>
+        )}
 
-//       {/* Chat Modal */}
-//       <Modal
-//         visible={showChat}
-//         animationType="slide"
-//         transparent={true}
-//         onRequestClose={() => setShowChat(false)}
-//       >
-//         <View style={styles.modalOverlay}>
-//           <View style={styles.modalContent}>
-//             <View style={styles.modalHeader}>
-//               <Text style={styles.modalTitle}>Chat ({messages.length})</Text>
-//               <TouchableOpacity onPress={() => setShowChat(false)}>
-//                 <Ionicons name="close" size={24} color="#666" />
-//               </TouchableOpacity>
-//             </View>
-            
-//             <FlatList
-//               data={messages}
-//               keyExtractor={(item, index) => index.toString()}
-//               renderItem={({ item }) => (
-//                 <View style={styles.messageItem}>
-//                   <Text style={styles.messageSender}>{item.sender?.name || 'Anonymous'}:</Text>
-//                   <Text style={styles.messageText}>{item.message}</Text>
-//                 </View>
-//               )}
-//               style={styles.messageList}
-//             />
-            
-//             <View style={styles.messageInputContainer}>
-//               <TextInput
-//                 style={styles.messageInput}
-//                 value={messageInput}
-//                 onChangeText={setMessageInput}
-//                 placeholder="Type a message..."
-//                 placeholderTextColor="#999"
-//               />
-//               <TouchableOpacity 
-//                 style={styles.sendButton} 
-//                 onPress={handleSendMessage}
-//               >
-//                 <Ionicons name="send" size={20} color="white" />
-//               </TouchableOpacity>
-//             </View>
-//           </View>
-//         </View>
-//       </Modal>
-//     </SafeAreaView>
-//   );
-// };
+        <View style={styles.remoteView}>
+          <View style={styles.remotePlaceholder}>
+            <Ionicons name="person" size={50} color="white" />
+            <Text style={styles.remoteName}>
+              {activeCall?.callerName || params.callerName || 'Remote Participant'}
+            </Text>
+            <Text style={styles.remoteStatus}>
+              {isConnected ? 'Connected' : 'Connecting...'}
+            </Text>
+          </View>
+        </View>
+      </View>
 
-// const styles = StyleSheet.create({
-//   container: {
-//     flex: 1,
-//     backgroundColor: '#000',
-//     position: 'absolute',
-//     top: 0,
-//     left: 0,
-//     right: 0,
-//     bottom: 0,
-//     zIndex: 1000,
-//   },
-//   header: {
-//     flexDirection: 'row',
-//     justifyContent: 'space-between',
-//     alignItems: 'center',
-//     paddingHorizontal: 20,
-//     paddingTop: Platform.OS === 'ios' ? 50 : 30,
-//     paddingBottom: 15,
-//     backgroundColor: 'rgba(0,0,0,0.9)',
-//     borderBottomWidth: 1,
-//     borderBottomColor: '#333',
-//   },
-//   headerLeft: {
-//     flex: 1,
-//   },
-//   headerRight: {
-//     flexDirection: 'row',
-//     alignItems: 'center',
-//   },
-//   roomName: {
-//     fontSize: 18,
-//     color: 'white',
-//     fontWeight: '600',
-//   },
-//   callInfo: {
-//     fontSize: 14,
-//     color: '#4CAF50',
-//     marginTop: 2,
-//   },
-//   recordingBadge: {
-//     flexDirection: 'row',
-//     alignItems: 'center',
-//     backgroundColor: '#F44336',
-//     paddingHorizontal: 8,
-//     paddingVertical: 4,
-//     borderRadius: 4,
-//     marginRight: 10,
-//   },
-//   recordingDot: {
-//     width: 8,
-//     height: 8,
-//     borderRadius: 4,
-//     backgroundColor: 'white',
-//     marginRight: 4,
-//   },
-//   recordingText: {
-//     color: 'white',
-//     fontSize: 10,
-//     fontWeight: 'bold',
-//   },
-//   participantCount: {
-//     fontSize: 14,
-//     color: '#ccc',
-//   },
-//   videoArea: {
-//     flex: 1,
-//     backgroundColor: '#1a1a1a',
-//   },
-//   videoGrid: {
-//     flexDirection: 'row',
-//     flexWrap: 'wrap',
-//     justifyContent: 'center',
-//     padding: 10,
-//   },
-//   peerContainer: {
-//     width: width > 500 ? '48%' : '100%',
-//     aspectRatio: 4/3,
-//     margin: 4,
-//   },
-//   videoTile: {
-//     flex: 1,
-//     backgroundColor: '#2a2a2a',
-//     borderRadius: 10,
-//     overflow: 'hidden',
-//     justifyContent: 'center',
-//     alignItems: 'center',
-//   },
-//   localTile: {
-//     borderWidth: 2,
-//     borderColor: '#007AFF',
-//   },
-//   videoPlaceholder: {
-//     alignItems: 'center',
-//   },
-//   peerName: {
-//     color: 'white',
-//     fontSize: 14,
-//     marginTop: 8,
-//     fontWeight: '500',
-//   },
-//   handRaisedBadge: {
-//     position: 'absolute',
-//     top: 10,
-//     right: 10,
-//     backgroundColor: '#FF9800',
-//     width: 28,
-//     height: 28,
-//     borderRadius: 14,
-//     justifyContent: 'center',
-//     alignItems: 'center',
-//   },
-//   audioOnlyTile: {
-//     alignItems: 'center',
-//   },
-//   avatar: {
-//     width: 80,
-//     height: 80,
-//     borderRadius: 40,
-//     backgroundColor: '#007AFF',
-//     justifyContent: 'center',
-//     alignItems: 'center',
-//     marginBottom: 10,
-//   },
-//   avatarText: {
-//     color: 'white',
-//     fontSize: 32,
-//     fontWeight: '600',
-//   },
-//   mutedBadge: {
-//     position: 'absolute',
-//     bottom: 30,
-//     right: 20,
-//     backgroundColor: '#F44336',
-//     width: 24,
-//     height: 24,
-//     borderRadius: 12,
-//     justifyContent: 'center',
-//     alignItems: 'center',
-//   },
-//   waitingContainer: {
-//     flex: 1,
-//     justifyContent: 'center',
-//     alignItems: 'center',
-//     padding: 40,
-//   },
-//   waitingText: {
-//     fontSize: 18,
-//     color: '#ccc',
-//     marginTop: 20,
-//     textAlign: 'center',
-//   },
-//   roomIdText: {
-//     fontSize: 14,
-//     color: '#666',
-//     marginTop: 10,
-//   },
-//   controlsContainer: {
-//     flexDirection: 'row',
-//     justifyContent: 'space-around',
-//     paddingVertical: 20,
-//     paddingHorizontal: 10,
-//     backgroundColor: 'rgba(0,0,0,0.9)',
-//     borderTopWidth: 1,
-//     borderTopColor: '#333',
-//   },
-//   controlButton: {
-//     width: 70,
-//     height: 70,
-//     borderRadius: 35,
-//     backgroundColor: '#333',
-//     justifyContent: 'center',
-//     alignItems: 'center',
-//   },
-//   controlButtonActive: {
-//     backgroundColor: '#444',
-//   },
-//   leaveButton: {
-//     backgroundColor: '#F44336',
-//   },
-//   controlText: {
-//     color: 'white',
-//     fontSize: 12,
-//     marginTop: 4,
-//   },
-//   modalOverlay: {
-//     flex: 1,
-//     backgroundColor: 'rgba(0,0,0,0.8)',
-//     justifyContent: 'flex-end',
-//   },
-//   modalContent: {
-//     backgroundColor: '#1a1a1a',
-//     borderTopLeftRadius: 20,
-//     borderTopRightRadius: 20,
-//     height: '60%',
-//     padding: 20,
-//   },
-//   modalHeader: {
-//     flexDirection: 'row',
-//     justifyContent: 'space-between',
-//     alignItems: 'center',
-//     marginBottom: 20,
-//     paddingBottom: 15,
-//     borderBottomWidth: 1,
-//     borderBottomColor: '#333',
-//   },
-//   modalTitle: {
-//     fontSize: 20,
-//     color: 'white',
-//     fontWeight: '600',
-//   },
-//   messageList: {
-//     flex: 1,
-//     marginBottom: 15,
-//   },
-//   messageItem: {
-//     backgroundColor: '#2a2a2a',
-//     padding: 12,
-//     borderRadius: 8,
-//     marginBottom: 8,
-//   },
-//   messageSender: {
-//     color: '#007AFF',
-//     fontSize: 14,
-//     fontWeight: '600',
-//     marginBottom: 2,
-//   },
-//   messageText: {
-//     color: 'white',
-//     fontSize: 16,
-//   },
-//   messageInputContainer: {
-//     flexDirection: 'row',
-//     alignItems: 'center',
-//   },
-//   messageInput: {
-//     flex: 1,
-//     backgroundColor: '#2a2a2a',
-//     color: 'white',
-//     paddingHorizontal: 15,
-//     paddingVertical: 12,
-//     borderRadius: 25,
-//     fontSize: 16,
-//     marginRight: 10,
-//   },
-//   sendButton: {
-//     width: 50,
-//     height: 50,
-//     borderRadius: 25,
-//     backgroundColor: '#007AFF',
-//     justifyContent: 'center',
-//     alignItems: 'center',
-//   },
-// });
+      <View style={styles.controlsContainer}>
+        <View style={styles.controlsRow}>
+          {isVideoEnabled && (
+            <TouchableOpacity 
+              style={styles.controlButton}
+              onPress={toggleCameraFacing}
+            >
+              <Ionicons name="camera-reverse" size={24} color="white" />
+              <Text style={styles.controlText}>Flip</Text>
+            </TouchableOpacity>
+          )}
+
+          <TouchableOpacity 
+            style={[styles.controlButton, isMuted && styles.controlButtonActive]}
+            onPress={toggleMute}
+          >
+            <Ionicons 
+              name={isMuted ? "mic-off" : "mic"} 
+              size={24} 
+              color="white" 
+            />
+            <Text style={styles.controlText}>
+              {isMuted ? 'Unmute' : 'Mute'}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={[styles.controlButton, !isVideoEnabled && styles.controlButtonActive]}
+            onPress={toggleVideo}
+          >
+            <Ionicons 
+              name={isVideoEnabled ? "videocam" : "videocam-off"} 
+              size={24} 
+              color="white" 
+            />
+            <Text style={styles.controlText}>
+              {isVideoEnabled ? 'Video Off' : 'Video On'}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={[styles.controlButton, isSpeakerEnabled && styles.controlButtonActive]}
+            onPress={toggleSpeaker}
+          >
+            <Ionicons 
+              name={isSpeakerEnabled ? "volume-high" : "volume-mute"} 
+              size={24} 
+              color="white" 
+            />
+            <Text style={styles.controlText}>
+              {isSpeakerEnabled ? 'Speaker' : 'Earpiece'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <TouchableOpacity 
+          style={styles.endCallButton}
+          onPress={handleEndCall}
+        >
+          <Ionicons name="call" size={28} color="white" />
+        </TouchableOpacity>
+      </View>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  permissionContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#000',
+    padding: 30,
+  },
+  permissionTitle: {
+    color: '#FFF',
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginTop: 20,
+    marginBottom: 10,
+  },
+  permissionText: {
+    color: '#999',
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 30,
+    lineHeight: 22,
+  },
+  permissionButton: {
+    backgroundColor: '#3B82F6',
+    paddingHorizontal: 30,
+    paddingVertical: 15,
+    borderRadius: 25,
+    marginBottom: 15,
+  },
+  permissionButtonText: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  backButton: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#666',
+    paddingHorizontal: 30,
+    paddingVertical: 15,
+    borderRadius: 25,
+  },
+  backButtonText: {
+    color: '#FFF',
+    fontSize: 16,
+  },
+  header: {
+    paddingTop: Platform.OS === 'ios' ? 20 : 10,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+  },
+  statusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 5,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 8,
+  },
+  callStatus: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  callTimer: {
+    color: '#FFF',
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginVertical: 5,
+  },
+  callerName: {
+    color: '#FFF',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  callType: {
+    color: '#999',
+    fontSize: 14,
+    marginTop: 5,
+  },
+  cameraContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  camera: {
+    width: width,
+    height: height * 0.6,
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  cameraPlaceholder: {
+    width: width,
+    height: height * 0.6,
+    backgroundColor: '#1F2937',
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cameraPlaceholderText: {
+    color: '#999',
+    fontSize: 16,
+    marginTop: 10,
+  },
+  remoteView: {
+    position: 'absolute',
+    top: 20,
+    right: 20,
+    width: 120,
+    height: 160,
+    backgroundColor: 'rgba(31, 41, 55, 0.9)',
+    borderRadius: 10,
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#3B82F6',
+  },
+  remotePlaceholder: {
+    alignItems: 'center',
+    padding: 10,
+  },
+  remoteName: {
+    color: '#FFF',
+    fontSize: 12,
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  remoteStatus: {
+    color: '#10B981',
+    fontSize: 10,
+    marginTop: 4,
+    fontWeight: '600',
+  },
+  controlsContainer: {
+    padding: 20,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+  },
+  controlsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    marginBottom: 25,
+  },
+  controlButton: {
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 50,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    minWidth: 70,
+  },
+  controlButtonActive: {
+    backgroundColor: 'rgba(59, 130, 246, 0.3)',
+  },
+  controlText: {
+    color: '#FFF',
+    fontSize: 10,
+    marginTop: 5,
+    fontWeight: '500',
+  },
+  endCallButton: {
+    alignSelf: 'center',
+    width: 65,
+    height: 65,
+    borderRadius: 32.5,
+    backgroundColor: '#EF4444',
+    justifyContent: 'center',
+    alignItems: 'center',
+    transform: [{ rotate: '135deg' }],
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+});

@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState, ReactNode } from
 import { useAuth } from './AuthContext';
 import { useChat } from './ChatContext';
 import io, { Socket } from 'socket.io-client';
+import { BASE_URL } from '@/services/api';
 
 interface SocketContextType {
   socket: Socket | null;
@@ -26,7 +27,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     if (!user || !authToken) return;
 
     // Initialize socket connection - use your backend URL
-    const newSocket = io('https://804c45252eb1.ngrok-free.app', {
+    const newSocket = io(BASE_URL, {
       auth: {
         token: authToken,
       },

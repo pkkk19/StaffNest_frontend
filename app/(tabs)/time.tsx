@@ -1,36 +1,47 @@
-// app/(tabs)/time.tsx - Updated with automatic refresh after location validation
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  Alert, 
-  Platform, 
-  Linking, 
-  ScrollView, 
-  RefreshControl,
-  AppState,
-  AppStateStatus 
+// app/(tabs)/time.tsx - Modern Minimal Design
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Modal,
+  Alert,
+  Platform,
+  Linking,
+  ScrollView,
+  Animated,
+  Dimensions,
+  StatusBar,
+  ActivityIndicator
 } from 'react-native';
 import { 
   Clock, 
   MapPin, 
   Navigation, 
-  Building, 
-  Calendar, 
-  CheckCircle, 
-  XCircle, 
-  RotateCcw,
-  AlertCircle,
-  User
+  ChevronDown,
+  ChevronUp,
+  Calendar,
+  Building,
+  Zap,
+  AlertTriangle,
+  X,
+  Shield,
+  Home,
+  Briefcase,
+  Check,
+  CalendarDays
 } from 'lucide-react-native';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import MapView, { Marker, Circle, PROVIDER_GOOGLE, Region } from 'react-native-maps';
 import * as Location from 'expo-location';
+import Constants from 'expo-constants';
 import { useTheme } from '@/contexts/ThemeContext';
-import { useLanguage } from '@/contexts/LanguageContext';
 import { useAuth } from '@/contexts/AuthContext';
-import ForceTouchable from '@/components/ForceTouchable';
 import { companiesAPI, shiftsAPI } from '@/services/api';
 import { Shift } from '@/app/types/rota.types';
+import { BlurView } from 'expo-blur';
+
+const { width, height } = Dimensions.get('window');
 
 interface CompanyLocation {
   name: string;
@@ -38,376 +49,228 @@ interface CompanyLocation {
   longitude: number;
   radius: number;
   is_active: boolean;
+  address?: string;
 }
 
-interface LocationData {
+interface LatLng {
   latitude: number;
   longitude: number;
-  address?: string;
-  distance?: number;
-  locationName?: string;
 }
 
-// Define types for interval
-type IntervalID = ReturnType<typeof setInterval>;
+interface ShiftOption {
+  shift: Shift;
+  canClockIn: boolean;
+  reason?: string;
+  isFuture?: boolean;
+  isPast?: boolean;
+}
 
-// Helper function to extract user ID from shift (handles both string and object)
 const getShiftUserId = (shift: Shift | null): string | undefined => {
-  if (!shift || !shift.user_id) return undefined;
+  if (!shift) return undefined;
   
-  // If user_id is a string, return it
   if (typeof shift.user_id === 'string') {
     return shift.user_id;
   }
   
-  // If user_id is an object with _id, return the _id
-  if (shift.user_id && typeof shift.user_id === 'object' && '_id' in shift.user_id) {
-    return (shift.user_id as any)._id;
+  if (shift.user_id && typeof shift.user_id === 'object') {
+    const userObj = shift.user_id as any;
+    if (userObj._id) return userObj._id;
+    if (userObj.id) return userObj.id;
   }
   
   return undefined;
 };
 
-// Helper function to get user name from shift
-const getShiftUserName = (shift: Shift | null): string => {
-  if (!shift || !shift.user_id) return 'Unassigned';
+const parseShiftDate = (dateValue: any): Date => {
+  if (!dateValue) return new Date();
   
-  // If user_id is an object with first_name and last_name
-  if (shift.user_id && typeof shift.user_id === 'object') {
-    const userObj = shift.user_id as any;
-    if (userObj.first_name && userObj.last_name) {
-      return `${userObj.first_name} ${userObj.last_name}`;
+  try {
+    if (typeof dateValue === 'object' && '$date' in dateValue) {
+      const dateObj = dateValue.$date;
+      if (dateObj && typeof dateObj === 'object' && '$numberLong' in dateObj) {
+        return new Date(parseInt(dateObj.$numberLong));
+      }
+      if (typeof dateObj === 'string') {
+        return new Date(dateObj);
+      }
     }
-    if (userObj.email) {
-      return userObj.email;
-    }
+    
+    if (typeof dateValue === 'string') return new Date(dateValue);
+    if (typeof dateValue === 'number') return new Date(dateValue);
+    if (dateValue instanceof Date) return dateValue;
+    
+    return new Date();
+  } catch (error) {
+    return new Date();
   }
+};
+
+const formatTime = (date: Date): string => {
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+
+const formatDate = (date: Date): string => {
+  return date.toLocaleDateString([], { 
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric'
+  });
+};
+
+const formatDuration = (ms: number): string => {
+  const totalSeconds = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
   
-  return 'Assigned';
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  return `${minutes}m`;
+};
+
+const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+  const R = 6371e3;
+  const φ1 = lat1 * Math.PI / 180;
+  const φ2 = lat2 * Math.PI / 180;
+  const Δφ = (lat2 - lat1) * Math.PI / 180;
+  const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+            Math.cos(φ1) * Math.cos(φ2) *
+            Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c;
+};
+
+const isSameDay = (date1: Date, date2: Date): boolean => {
+  return date1.getFullYear() === date2.getFullYear() &&
+         date1.getMonth() === date2.getMonth() &&
+         date1.getDate() === date2.getDate();
+};
+
+const CustomModal = ({ visible, onClose, children, title, icon: Icon, theme }: any) => {
+  const [fadeAnim] = useState(new Animated.Value(0));
+
+  useEffect(() => {
+    if (visible) {
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [visible]);
+
+  if (!visible) return null;
+
+  const modalStyles = createModalStyles(theme);
+
+  return (
+    <Modal
+      transparent={true}
+      animationType="none"
+      visible={visible}
+      onRequestClose={onClose}
+    >
+      <View style={modalStyles.modalOverlay}>
+        <BlurView intensity={20} style={StyleSheet.absoluteFill} tint={theme === 'dark' ? 'dark' : 'light'} />
+        <TouchableOpacity 
+          style={modalStyles.modalBackdrop}
+          activeOpacity={1}
+          onPress={onClose}
+        />
+        <Animated.View 
+          style={[
+            modalStyles.customModalContent,
+            {
+              transform: [{
+                translateY: fadeAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [300, 0]
+                })
+              }]
+            }
+          ]}
+        >
+          <View style={modalStyles.customModalHeader}>
+            <View style={modalStyles.modalTitleContainer}>
+              {Icon && <Icon size={24} color={theme === 'dark' ? '#6366F1' : '#4F46E5'} style={modalStyles.modalIcon} />}
+              <Text style={modalStyles.customModalTitle}>{title}</Text>
+            </View>
+            <TouchableOpacity onPress={onClose} style={modalStyles.closeButton}>
+              <X size={24} color={theme === 'dark' ? '#94A3B8' : '#64748B'} />
+            </TouchableOpacity>
+          </View>
+          {children}
+        </Animated.View>
+      </View>
+    </Modal>
+  );
 };
 
 export default function TimeTracking() {
   const { theme } = useTheme();
-  const { t } = useLanguage();
   const { user } = useAuth();
   
   const [currentShift, setCurrentShift] = useState<Shift | null>(null);
   const [companyLocations, setCompanyLocations] = useState<CompanyLocation[]>([]);
   const [isClockedIn, setIsClockedIn] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [location, setLocation] = useState<LocationData | null>(null);
+  const [currentLocation, setCurrentLocation] = useState<LatLng | null>(null);
   const [locationPermission, setLocationPermission] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [locationValidation, setLocationValidation] = useState<{
-    isValid: boolean;
-    message: string;
-    locationName?: string;
-    distance?: number;
-  } | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-  const [autoRefreshCount, setAutoRefreshCount] = useState(0);
-  const [companyDetails, setCompanyDetails] = useState<any>(null);
-  const [allShifts, setAllShifts] = useState<Shift[]>([]);
-  const [locationsLoaded, setLocationsLoaded] = useState(false);
+  const [region, setRegion] = useState<Region>({
+    latitude: 27.7172,
+    longitude: 85.3240,
+    latitudeDelta: 0.01,
+    longitudeDelta: 0.01,
+  });
+  const [clockedInDuration, setClockedInDuration] = useState(0);
   
-  const refreshIntervalRef = useRef<IntervalID | null>(null);
-  const appStateRef = useRef(AppState.currentState);
-  const lastFetchRef = useRef<number>(0);
-  const locationSubscriptionRef = useRef<any>(null);
-  const lastLocationValidationRef = useRef<string>(''); // Store last validation state
-
+  const [availableShifts, setAvailableShifts] = useState<ShiftOption[]>([]);
+  const [selectedShift, setSelectedShift] = useState<Shift | null>(null);
+  const [showShiftSelectionModal, setShowShiftSelectionModal] = useState(false);
+  const [showClockInModal, setShowClockInModal] = useState(false);
+  const [showClockOutModal, setShowClockOutModal] = useState(false);
+  const [todayShifts, setTodayShifts] = useState<Shift[]>([]);
+  const [showLocationDetails, setShowLocationDetails] = useState(false);
+  const [selectedLocationIndex, setSelectedLocationIndex] = useState<number | null>(null);
+  
+  const mapRef = useRef<MapView>(null);
   const styles = createStyles(theme);
+  const modalStyles = createModalStyles(theme);
 
-  // Auto-refresh configuration
-  const AUTO_REFRESH_INTERVAL = 30000; // 30 seconds
-  const MIN_FETCH_INTERVAL = 10000; // 10 seconds minimum between fetches
-
-  // Update current time every minute
   useEffect(() => {
     const timeInterval = setInterval(() => {
-      setCurrentTime(new Date());
-    }, 60000);
+      const now = new Date();
+      setCurrentTime(now);
+      
+      if (isClockedIn && currentShift?.clock_in_time) {
+        const clockInTime = parseShiftDate(currentShift.clock_in_time);
+        const duration = now.getTime() - clockInTime.getTime();
+        setClockedInDuration(duration);
+      }
+    }, 1000);
 
     return () => clearInterval(timeInterval);
-  }, []);
+  }, [isClockedIn, currentShift]);
 
-  // Format date for API calls (YYYY-MM-DD)
-  const formatDateForAPI = (date: Date): string => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
+  useEffect(() => {
+    checkLocationPermission();
+    fetchCompanyInfo();
+    if (user?._id) {
+      fetchTodayShifts();
+    }
+  }, [user?._id]);
 
-  // Get today's date range
-  const getTodayDateRange = () => {
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    return { today, tomorrow };
-  };
-
-  // Parse date from MongoDB format or ISO string
-  const parseShiftDate = (dateValue: any): Date => {
-    if (!dateValue) return new Date();
-    
-    // If it's an object with $date (MongoDB format)
-    if (typeof dateValue === 'object' && '$date' in dateValue) {
-      const timestamp = dateValue.$date.$numberLong || dateValue.$date;
-      return new Date(parseInt(timestamp));
-    }
-    
-    // If it's already a Date object
-    if (dateValue instanceof Date) {
-      return dateValue;
-    }
-    
-    // If it's an ISO string
-    return new Date(dateValue);
-  };
-
-  // Fetch all data
-  const fetchAllData = useCallback(async () => {
-    const now = Date.now();
-    if (now - lastFetchRef.current < MIN_FETCH_INTERVAL) {
-      return; // Skip if too soon since last fetch
-    }
-    
-    lastFetchRef.current = now;
-    
-    try {
-      await Promise.all([
-        fetchCurrentShift(),
-        fetchCompanyInfo()
-      ]);
-    } catch (error) {
-      console.error('Error fetching all data:', error);
-    }
-  }, []);
-
-  // Fetch current shift
-  const fetchCurrentShift = async () => {
-    if (!user?._id || !user?.company_id) {
-      console.log('❌ No user or company ID');
-      return;
-    }
-    
-    try {
-      const { today, tomorrow } = getTodayDateRange();
-      const todayStr = formatDateForAPI(today);
-      const tomorrowStr = formatDateForAPI(tomorrow);
-      
-      console.log('🔄 Fetching shifts for:', today.toDateString());
-      console.log('📅 Date range:', { todayStr, tomorrowStr });
-      
-      let shiftsResponse;
-      
-      if (user?.role === 'admin') {
-        // Admin: Get all company shifts
-        shiftsResponse = await shiftsAPI.getShifts({
-          start_date: todayStr,
-          end_date: tomorrowStr
-        });
-        console.log(`👑 Admin fetched ${shiftsResponse.data.length} company shifts`);
-      } else {
-        // Staff: Get only their shifts
-        shiftsResponse = await shiftsAPI.getMyShifts({
-          start_date: todayStr,
-          end_date: tomorrowStr
-        });
-        console.log(`👤 Staff fetched ${shiftsResponse.data.length} shifts`);
-      }
-      
-      // Store all shifts for debug
-      setAllShifts(shiftsResponse.data);
-      
-      // Filter for TODAY'S shifts
-      const todayShifts = shiftsResponse.data.filter((shift: Shift) => {
-        const shiftDate = parseShiftDate(shift.start_time);
-        const isToday = shiftDate.toDateString() === today.toDateString();
-        return isToday;
-      });
-      
-      console.log('📅 Today\'s shifts:', todayShifts.length);
-      
-      if (todayShifts.length > 0) {
-        // Sort by start time
-        todayShifts.sort((a: Shift, b: Shift) => 
-          parseShiftDate(a.start_time).getTime() - parseShiftDate(b.start_time).getTime()
-        );
-        
-        // Find appropriate shift based on user role
-        let selectedShift = todayShifts[0];
-        const now = new Date();
-        
-        if (user?.role === 'admin') {
-          // Admin: Show the next upcoming shift (any employee)
-          for (const shift of todayShifts) {
-            const shiftEnd = parseShiftDate(shift.end_time);
-            if (shiftEnd > now) {
-              selectedShift = shift;
-              break;
-            }
-          }
-        } else {
-          // Staff: Find THEIR next shift
-          const myShifts = todayShifts.filter((shift: Shift) => {
-            const shiftUserId = getShiftUserId(shift);
-            return shiftUserId === user?._id;
-          });
-          
-          if (myShifts.length > 0) {
-            selectedShift = myShifts[0];
-            for (const shift of myShifts) {
-              const shiftEnd = parseShiftDate(shift.end_time);
-              if (shiftEnd > now) {
-                selectedShift = shift;
-                break;
-              }
-            }
-          } else {
-            // Staff has no shifts assigned today
-            console.log('👤 Staff has no assigned shifts today');
-            setCurrentShift(null);
-            setIsClockedIn(false);
-            return;
-          }
-        }
-        
-        const selectedShiftUserId = getShiftUserId(selectedShift);
-        const isAssignedToMe = selectedShiftUserId === user?._id;
-        
-        console.log('🎯 Selected shift:', {
-          title: selectedShift.title,
-          status: selectedShift.status,
-          start: parseShiftDate(selectedShift.start_time).toLocaleTimeString(),
-          end: parseShiftDate(selectedShift.end_time).toLocaleTimeString(),
-          isAssignedToMe: isAssignedToMe
-        });
-        
-        setCurrentShift(selectedShift);
-        setIsClockedIn(selectedShift.status === 'in-progress' || selectedShift.status === 'late');
-      } else {
-        console.log('📭 No shifts for today');
-        setCurrentShift(null);
-        setIsClockedIn(false);
-      }
-    } catch (error: any) {
-      console.error('❌ Error fetching shifts:', error.message);
-      if (error.response) {
-        console.error('📊 Response status:', error.response.status);
-        console.error('📊 Response data:', error.response.data);
-      }
-    }
-  };
-
-  // Fetch company info and locations
-  const fetchCompanyInfo = async () => {
-    console.log('🏢 ========== START fetchCompanyInfo ==========');
-    console.log('👤 User company_id:', user?.company_id);
-    
-    try {
-      if (!user?.company_id) {
-        console.log('❌ No company_id found for user');
-        setCompanyLocations([]);
-        setLocationsLoaded(true);
-        return;
-      }
-      
-      let companyResponse;
-      let methodUsed = '';
-      
-      // Try multiple approaches to get company data
-      try {
-        console.log('🔄 Attempt 1: Calling getMyCompany()...');
-        companyResponse = await companiesAPI.getMyCompany();
-        methodUsed = 'getMyCompany';
-        console.log('✅ getMyCompany() succeeded');
-      } catch (error1: any) {
-        console.log('❌ getMyCompany() failed:', error1.message);
-        
-        try {
-          console.log('🔄 Attempt 2: Calling getCompany() with user.company_id...');
-          companyResponse = await companiesAPI.getCompany(user.company_id);
-          methodUsed = 'getCompany';
-          console.log('✅ getCompany() succeeded');
-        } catch (error2: any) {
-          console.log('❌ getCompany() failed:', error2.message);
-          
-          try {
-            console.log('🔄 Attempt 3: Calling getCompanies() and filtering...');
-            const allCompanies = await companiesAPI.getCompanies();
-            console.log('📋 Total companies found:', allCompanies.data?.length || 0);
-            
-            if (allCompanies.data && Array.isArray(allCompanies.data)) {
-              const userCompany = allCompanies.data.find(
-                (company: any) => company._id === user.company_id
-              );
-              
-              if (userCompany) {
-                companyResponse = { data: userCompany };
-                methodUsed = 'getCompanies-filter';
-                console.log('✅ Found company in companies list');
-              } else {
-                console.log('❌ Company not found in companies list');
-              }
-            }
-          } catch (error3: any) {
-            console.log('❌ All methods failed:', error3.message);
-          }
-        }
-      }
-      
-      if (companyResponse && companyResponse.data) {
-        console.log(`🎉 Company data received via ${methodUsed}:`, companyResponse.data.name);
-        
-        setCompanyDetails(companyResponse.data);
-        
-        // Extract locations from company response
-        if (companyResponse.data.locations && Array.isArray(companyResponse.data.locations)) {
-          console.log(`📍 Found ${companyResponse.data.locations.length} locations in company data`);
-          
-          // Log each location for debugging
-          companyResponse.data.locations.forEach((loc: any, index: number) => {
-            console.log(`📍 Location ${index + 1}:`, {
-              name: loc.name,
-              latitude: loc.latitude,
-              longitude: loc.longitude,
-              radius: loc.radius,
-              is_active: loc.is_active,
-              hasCoords: !!(loc.latitude && loc.longitude)
-            });
-          });
-          
-          // Filter active locations
-          const activeLocations = companyResponse.data.locations.filter(
-            (loc: CompanyLocation) => loc.is_active !== false
-          );
-          
-          console.log(`📍 Active locations: ${activeLocations.length}`);
-          setCompanyLocations(activeLocations);
-        } else {
-          console.log('⚠️ No locations array found in company data');
-          console.log('🔍 Available fields:', Object.keys(companyResponse.data));
-          setCompanyLocations([]);
-        }
-      } else {
-        console.log('❌ No company data received at all');
-        setCompanyLocations([]);
-      }
-      
-      setLocationsLoaded(true);
-      console.log('🏢 ========== END fetchCompanyInfo ==========');
-    } catch (error: any) {
-      console.error('❌ Unexpected error in fetchCompanyInfo:', error.message);
-      setCompanyLocations([]);
-      setLocationsLoaded(true);
-    }
-  };
-
-  // Initialize location
-  const initLocation = useCallback(async () => {
+  const checkLocationPermission = async () => {
     try {
       const { status } = await Location.getForegroundPermissionsAsync();
       const hasPermission = status === 'granted';
@@ -417,289 +280,37 @@ export default function TimeTracking() {
         await getCurrentLocation();
       }
     } catch (error) {
-      console.error('Error initializing location:', error);
+      console.log('Error checking location permission:', error);
     }
-  }, []);
-
-  // Calculate distance
-  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-    const R = 6371e3; // Earth's radius in meters
-    const φ1 = lat1 * Math.PI / 180;
-    const φ2 = lat2 * Math.PI / 180;
-    const Δφ = (lat2 - lat1) * Math.PI / 180;
-    const Δλ = (lon2 - lon1) * Math.PI / 180;
-
-    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-              Math.cos(φ1) * Math.cos(φ2) *
-              Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-    return R * c; // Distance in meters
-  };
-
-  // Validate work location with detailed debugging
-  const validateWorkLocation = (latitude: number, longitude: number) => {
-    console.log('📍 ========== START validateWorkLocation ==========');
-    console.log('📍 User location:', { latitude, longitude });
-    console.log('📍 Company locations count:', companyLocations.length);
-    console.log('📍 Company locations:', companyLocations);
-    
-    if (companyLocations.length === 0) {
-      console.log('❌ No company locations to validate against');
-      console.log('📍 ========== END validateWorkLocation ==========');
-      return {
-        isValid: false,
-        message: 'No work locations configured'
-      };
-    }
-
-    // Debug: Test distance calculation with your specific coordinates
-    const testDistance = calculateDistance(
-      27.408190, 85.023646, // Your current location from screenshot
-      27.4082, 85.0237      // Main office location from screenshot
-    );
-    console.log('🧪 Test distance calculation:', {
-      yourLocation: '27.408190, 85.023646',
-      officeLocation: '27.4082, 85.0237',
-      distance: `${testDistance.toFixed(2)}m`,
-      shouldBeWithin: '100m radius'
-    });
-
-    for (const workLocation of companyLocations) {
-      console.log(`📍 Checking location: ${workLocation.name}`, {
-        is_active: workLocation.is_active,
-        radius: workLocation.radius
-      });
-      
-      if (workLocation.is_active === false) {
-        console.log(`📍 Skipping ${workLocation.name} - not active`);
-        continue;
-      }
-      
-      const distance = calculateDistance(
-        latitude,
-        longitude,
-        workLocation.latitude,
-        workLocation.longitude
-      );
-      
-      console.log(`📍 Distance to ${workLocation.name}: ${distance.toFixed(2)}m`);
-      console.log(`📍 Allowed radius: ${workLocation.radius}m`);
-      console.log(`📍 Within range? ${distance <= workLocation.radius}`);
-      
-      if (distance <= workLocation.radius) {
-        console.log(`✅ VALID: Within range of ${workLocation.name}`);
-        console.log('📍 ========== END validateWorkLocation ==========');
-        return {
-          isValid: true,
-          message: `At ${workLocation.name} (${Math.round(distance)}m)`,
-          locationName: workLocation.name,
-          distance: Math.round(distance)
-        };
-      }
-      
-      console.log(`❌ NOT within range of ${workLocation.name}`);
-    }
-    
-    // Find the closest location for debugging
-    let closestLocation = '';
-    let minDistance = Infinity;
-    
-    companyLocations.forEach(loc => {
-      if (loc.is_active !== false) {
-        const distance = calculateDistance(latitude, longitude, loc.latitude, loc.longitude);
-        if (distance < minDistance) {
-          minDistance = distance;
-          closestLocation = loc.name;
-        }
-      }
-    });
-    
-    console.log(`📍 Closest location: ${closestLocation} (${Math.round(minDistance)}m away)`);
-    console.log('📍 ========== END validateWorkLocation ==========');
-    
-    return {
-      isValid: false,
-      message: `Not at any work location. Closest: ${closestLocation} (${Math.round(minDistance)}m)`
-    };
   };
 
   const getCurrentLocation = async () => {
-    if (isLoading) return;
-    
     try {
       setIsLoading(true);
-      console.log('📍 Getting current location...');
-      
-      const currentLocation = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.BestForNavigation,
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
       });
       
-      const { latitude, longitude } = currentLocation.coords;
-      console.log('📍 Got current location:', { latitude, longitude });
+      const newLocation = {
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+      };
       
-      // Get address
-      let address = 'Location acquired';
-      try {
-        const addressResponse = await Location.reverseGeocodeAsync({
-          latitude,
-          longitude,
-        });
-        
-        if (addressResponse[0]) {
-          address = `${addressResponse[0].street || ''} ${addressResponse[0].city || ''}`.trim();
-          if (addressResponse[0].name) {
-            address = addressResponse[0].name;
-          }
-        }
-      } catch (addressError) {
-        console.log('Address lookup failed');
-        address = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
-      }
+      setCurrentLocation(newLocation);
       
-      // Validate work location
-      let validation;
-      
-      if (!locationsLoaded) {
-        console.log('⚠️ Locations not loaded yet, skipping validation');
-        validation = {
-          isValid: false,
-          message: 'Locations loading...'
-        };
-      } else if (companyLocations.length === 0) {
-        console.log('⚠️ No company locations configured');
-        validation = {
-          isValid: false,
-          message: 'No work locations configured'
-        };
-      } else {
-        console.log('📍 Validating location against company locations...');
-        validation = validateWorkLocation(latitude, longitude);
-      }
-      
-      console.log('📍 Validation result:', validation);
-      setLocationValidation(validation);
-      
-      setLocation({
-        latitude,
-        longitude,
-        address,
-        distance: validation.distance,
-        locationName: validation.locationName
+      setRegion({
+        latitude: newLocation.latitude,
+        longitude: newLocation.longitude,
+        latitudeDelta: 0.005,
+        longitudeDelta: 0.005,
       });
       
-      return { latitude, longitude };
     } catch (error) {
-      console.error('Error getting location:', error);
-      setLocationValidation({
-        isValid: false,
-        message: 'Failed to get location'
-      });
-      return null;
+      console.log('Error getting location:', error);
     } finally {
       setIsLoading(false);
     }
   };
-
-  // Handle pull-to-refresh
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      await fetchAllData();
-      await getCurrentLocation();
-      console.log('🔄 Manual refresh complete');
-    } catch (error) {
-      console.error('Refresh failed:', error);
-    } finally {
-      setRefreshing(false);
-    }
-  }, [fetchAllData]);
-
-  // Effect to refresh data when location validation changes
-  useEffect(() => {
-    if (locationValidation) {
-      const currentValidationState = `${locationValidation.isValid}-${locationValidation.message}`;
-      
-      // Check if validation state has changed
-      if (currentValidationState !== lastLocationValidationRef.current) {
-        console.log('🔄 Location validation changed, refreshing data...');
-        console.log('📋 Previous:', lastLocationValidationRef.current);
-        console.log('📋 Current:', currentValidationState);
-        
-        // Update the ref
-        lastLocationValidationRef.current = currentValidationState;
-        
-        // Refresh data if validation changed (but not if it's just loading message)
-        if (!locationValidation.message.includes('loading') && 
-            !locationValidation.message.includes('Locations loading')) {
-          
-          // Small delay to ensure UI updates first
-          setTimeout(() => {
-            fetchCurrentShift();
-          }, 1000);
-        }
-      }
-    }
-  }, [locationValidation]);
-
-  // Effect to refresh when company locations are loaded
-  useEffect(() => {
-    if (locationsLoaded && companyLocations.length > 0) {
-      console.log('📍 Company locations loaded, refreshing location validation...');
-      
-      // If we already have a location, re-validate it
-      if (location) {
-        console.log('📍 Re-validating existing location...');
-        const validation = validateWorkLocation(location.latitude, location.longitude);
-        setLocationValidation(validation);
-      }
-    }
-  }, [locationsLoaded, companyLocations.length]);
-
-  // Handle app state changes
-  useEffect(() => {
-    const handleAppStateChange = (nextAppState: AppStateStatus) => {
-      if (
-        appStateRef.current.match(/inactive|background/) &&
-        nextAppState === 'active'
-      ) {
-        console.log('📱 App came to foreground, refreshing...');
-        fetchAllData();
-        setAutoRefreshCount(prev => prev + 1);
-      }
-      appStateRef.current = nextAppState;
-    };
-
-    const subscription = AppState.addEventListener('change', handleAppStateChange);
-
-    return () => {
-      subscription.remove();
-    };
-  }, [fetchAllData]);
-
-  // Setup auto-refresh interval
-  useEffect(() => {
-    if (refreshIntervalRef.current) {
-      clearInterval(refreshIntervalRef.current);
-    }
-
-    refreshIntervalRef.current = setInterval(() => {
-      console.log('⏰ Auto-refresh triggered');
-      fetchAllData();
-      setAutoRefreshCount(prev => prev + 1);
-    }, AUTO_REFRESH_INTERVAL);
-
-    // Initial fetch
-    fetchAllData();
-    initLocation();
-
-    // Cleanup
-    return () => {
-      if (refreshIntervalRef.current) {
-        clearInterval(refreshIntervalRef.current);
-      }
-    };
-  }, [fetchAllData, initLocation]);
 
   const requestLocationPermission = async () => {
     try {
@@ -712,8 +323,8 @@ export default function TimeTracking() {
         await getCurrentLocation();
       } else {
         Alert.alert(
-          'Location Permission Required',
-          'Please enable location services to clock in/out',
+          'Location Required',
+          'Enable location services to clock in/out',
           [
             { text: 'Cancel', style: 'cancel' },
             { 
@@ -724,746 +335,2252 @@ export default function TimeTracking() {
         );
       }
     } catch (error) {
-      console.error('Error requesting location permission:', error);
+      Alert.alert('Error', 'Failed to request location permission');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleClockToggle = async () => {
-    if (!currentShift) {
-      Alert.alert('No Shift', 'You do not have a scheduled shift today');
-      return;
-    }
-
-    // Check if shift is assigned to current user
-    const shiftUserId = getShiftUserId(currentShift);
-    if (shiftUserId !== user?._id) {
-      Alert.alert('Not Your Shift', 'This shift is not assigned to you');
-      return;
-    }
-
-    if (isClockedIn) {
-      // Clock out
-      if (!locationPermission) {
-        await requestLocationPermission();
-        if (!locationPermission) return;
-      }
-
-      const locationData = await getCurrentLocation();
-      if (!locationData) return;
-
-      if (!locationValidation?.isValid) {
-        Alert.alert(
-          'Cannot Clock Out',
-          'You must be at a work location to clock out',
-          [
-            { text: 'Try Again', onPress: () => handleClockToggle() },
-            { text: 'Cancel', style: 'cancel' }
-          ]
-        );
-        return;
-      }
-
-      try {
-        await shiftsAPI.clockOut(currentShift._id, {
-          latitude: locationData.latitude,
-          longitude: locationData.longitude
-        });
-        
-        setIsClockedIn(false);
-        // Refresh immediately after clocking out
-        await Promise.all([
-          fetchCurrentShift(),
-          getCurrentLocation() // Re-validate location
-        ]);
-        
-        Alert.alert(
-          'Clocked Out Successfully',
-          `You have clocked out at ${formatTime(new Date())}`,
-          [{ text: 'OK' }]
-        );
-      } catch (error: any) {
-        Alert.alert('Error', error.response?.data?.message || 'Failed to clock out');
-      }
-    } else {
-      // Clock in
-      if (!locationPermission) {
-        await requestLocationPermission();
-        if (!locationPermission) return;
-      }
-
-      const locationData = await getCurrentLocation();
-      if (!locationData) return;
-
-      if (!locationValidation?.isValid) {
-        Alert.alert(
-          'Cannot Clock In',
-          'You must be at a work location to clock in',
-          [
-            { text: 'Try Again', onPress: () => handleClockToggle() },
-            { text: 'Cancel', style: 'cancel' }
-          ]
-        );
-        return;
-      }
-
-      // Check if shift hasn't started yet
-      const shiftStartTime = parseShiftDate(currentShift.start_time);
-      const now = new Date();
-      const minutesBeforeStart = 15; // Allow clock in 15 minutes before shift
-
-      if (now < new Date(shiftStartTime.getTime() - minutesBeforeStart * 60000)) {
-        Alert.alert(
-          'Shift Not Started',
-          `You can clock in starting ${minutesBeforeStart} minutes before your shift`,
-          [{ text: 'OK' }]
-        );
-        return;
-      }
-
-      try {
-        await shiftsAPI.clockIn(currentShift._id, {
-          latitude: locationData.latitude,
-          longitude: locationData.longitude
-        });
-        
-        setIsClockedIn(true);
-        // Refresh immediately after clocking in
-        await Promise.all([
-          fetchCurrentShift(),
-          getCurrentLocation() // Re-validate location
-        ]);
-        
-        Alert.alert(
-          'Clocked In Successfully',
-          `You have clocked in at ${formatTime(new Date())}`,
-          [{ text: 'OK' }]
-        );
-      } catch (error: any) {
-        Alert.alert('Error', error.response?.data?.message || 'Failed to clock in');
-      }
-    }
-  };
-
-  const formatTime = (date: Date) => {
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
-
-  const formatDate = (date: Date) => {
-    return date.toLocaleDateString([], { 
-      weekday: 'long', 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric' 
-    });
-  };
-
-  const getStatusColor = (status: string) => {
-    const colorMap: Record<string, string> = {
-      'scheduled': '#3B82F6',
-      'in-progress': '#10B981',
-      'late': '#F59E0B',
-      'completed': '#6B7280',
-      'completed-early': '#8B5CF6',
-      'completed-overtime': '#EC4899',
-      'cancelled': '#EF4444'
-    };
-    return colorMap[status] || '#6B7280';
-  };
-
-  const getShiftDuration = () => {
-    if (!currentShift) return 0;
-    const start = parseShiftDate(currentShift.start_time);
-    const end = parseShiftDate(currentShift.end_time);
-    return (end.getTime() - start.getTime()) / (1000 * 60 * 60);
-  };
-
-  const isShiftAssignedToMe = () => {
-    if (!currentShift || !user) return false;
-    const shiftUserId = getShiftUserId(currentShift);
-    return shiftUserId === user._id;
-  };
-
-  // Add function to manually trigger refresh with location check
-  const refreshWithLocationCheck = async () => {
-    console.log('🔄 Refresh with location check...');
-    setRefreshing(true);
+const fetchCompanyInfo = async () => {
+  try {
+    if (!user?._id) return;
+    
+    // Try to get locations (now accessible to both admin and staff)
     try {
-      // First get fresh data
-      await fetchAllData();
+      const locationsResponse = await companiesAPI.getLocations();
       
-      // Then update location
-      await getCurrentLocation();
+      if (locationsResponse.data?.locations) {
+        setCompanyLocations(locationsResponse.data.locations);
+        return;
+      }
+    } catch (locationsError) {
+      console.log('Failed to fetch locations:', locationsError);
+    }
+    
+    // Fallback: Try to get company info for admin
+    try {
+      const companyResponse = await companiesAPI.getMyCompany();
       
-      console.log('✅ Refresh with location check complete');
-    } catch (error) {
-      console.error('Refresh failed:', error);
+      if (companyResponse.data?.locations) {
+        const activeLocations = companyResponse.data.locations.filter(
+          (loc: CompanyLocation) => loc.is_active !== false
+        );
+        setCompanyLocations(activeLocations);
+        return;
+      }
+    } catch (adminError) {
+      console.log('Admin endpoint failed:', adminError);
+    }
+    
+    // If user has company_id, try to get company by ID
+    if (user.company_id) {
+      try {
+        const companyResponse = await companiesAPI.getCompany(user.company_id);
+        
+        if (companyResponse.data?.locations) {
+          const activeLocations = companyResponse.data.locations.filter(
+            (loc: CompanyLocation) => loc.is_active !== false
+          );
+          setCompanyLocations(activeLocations);
+          return;
+        }
+      } catch (companyError) {
+        console.log('Company by ID endpoint failed:', companyError);
+      }
+    }
+    
+    // Set empty array if no locations found
+    setCompanyLocations([]);
+    
+  } catch (error) {
+    console.error('Error fetching company info:', error);
+    setCompanyLocations([]);
+  }
+};
+
+  const fetchTodayShifts = useCallback(async () => {
+    if (!user?._id) return;
+    
+    try {
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+      
+      const formatDateForAPI = (date: Date): string => {
+        return date.toISOString().split('T')[0];
+      };
+      
+      let shiftsResponse;
+      try {
+        shiftsResponse = await shiftsAPI.getMyShifts();
+        
+        if (!shiftsResponse.data || shiftsResponse.data.length === 0) {
+          shiftsResponse = await shiftsAPI.getMyShifts({
+            start_date: formatDateForAPI(todayStart),
+            end_date: formatDateForAPI(todayEnd)
+          });
+        }
+      } catch (apiError) {
+        try {
+          shiftsResponse = await shiftsAPI.getMyShifts({});
+        } catch (fallbackError) {
+          throw fallbackError;
+        }
+      }
+      
+      const shiftsData = shiftsResponse.data || [];
+      
+      const filteredShifts = shiftsData.filter((shift: Shift) => {
+        try {
+          const shiftStartDate = parseShiftDate(shift.start_time);
+          const isToday = isSameDay(shiftStartDate, now);
+          
+          const shiftUserId = getShiftUserId(shift);
+          const isAssignedToMe = shiftUserId === user._id || !shift.user_id;
+          
+          return isToday && (isAssignedToMe || !shift.user_id);
+        } catch (error) {
+          return false;
+        }
+      });
+      
+      setTodayShifts(filteredShifts);
+      
+      const clockedInShift = filteredShifts.find((shift: Shift) => 
+        shift.status === 'in-progress' || shift.status === 'late'
+      );
+      
+      if (clockedInShift) {
+        setCurrentShift(clockedInShift);
+        setIsClockedIn(true);
+        const clockInTime = parseShiftDate(clockedInShift.clock_in_time);
+        const duration = now.getTime() - clockInTime.getTime();
+        setClockedInDuration(duration);
+      } else {
+        setCurrentShift(null);
+        setIsClockedIn(false);
+        setClockedInDuration(0);
+      }
+      
+    } catch (error: any) {
+      Alert.alert('Error', 'Failed to fetch shifts');
     } finally {
-      setRefreshing(false);
+      setIsLoading(false);
+    }
+  }, [user?._id]);
+
+  const onRefresh = useCallback(async () => {
+    setIsLoading(true);
+    await fetchTodayShifts();
+  }, [fetchTodayShifts]);
+
+  const validateLocation = (): { isValid: boolean; message: string; locationName?: string } => {
+    if (!currentLocation) {
+      return { isValid: false, message: 'Location not available' };
+    }
+    
+    if (companyLocations.length === 0) {
+      return { isValid: false, message: 'No work locations configured' };
+    }
+    
+    for (const workLocation of companyLocations) {
+      if (workLocation.is_active === false) continue;
+      
+      const distance = calculateDistance(
+        currentLocation.latitude,
+        currentLocation.longitude,
+        workLocation.latitude,
+        workLocation.longitude
+      );
+      
+      if (distance <= workLocation.radius) {
+        return {
+          isValid: true,
+          message: `At ${workLocation.name}`,
+          locationName: workLocation.name
+        };
+      }
+    }
+    
+    let closestLocation = '';
+    let minDistance = Infinity;
+    
+    companyLocations.forEach((loc: CompanyLocation) => {
+      if (loc.is_active !== false) {
+        const distance = calculateDistance(
+          currentLocation.latitude,
+          currentLocation.longitude,
+          loc.latitude,
+          loc.longitude
+        );
+        if (distance < minDistance) {
+          minDistance = distance;
+          closestLocation = loc.name;
+        }
+      }
+    });
+    
+    return { 
+      isValid: false, 
+      message: `${Math.round(minDistance)}m to nearest location` 
+    };
+  };
+
+  const getAvailableShifts = (): ShiftOption[] => {
+    const now = new Date();
+    const options: ShiftOption[] = [];
+    
+    todayShifts.forEach((shift: Shift) => {
+      try {
+        const shiftStart = parseShiftDate(shift.start_time);
+        const shiftEnd = parseShiftDate(shift.end_time);
+        const fifteenMinutesBefore = new Date(shiftStart.getTime() - 15 * 60000);
+        const fifteenMinutesAfterEnd = new Date(shiftEnd.getTime() + 15 * 60000);
+        
+        let canClockIn = false;
+        let isFuture = false;
+        let isPast = false;
+        let reason = '';
+        
+        if (shift.status === 'in-progress' || shift.status === 'late') {
+          reason = 'Already clocked in';
+          isPast = true;
+        } else if (shift.status === 'completed' || shift.status === 'cancelled') {
+          reason = 'Shift completed';
+          isPast = true;
+        } else if (now < fifteenMinutesBefore) {
+          reason = `Starts at ${formatTime(shiftStart)}`;
+          isFuture = true;
+        } else if (now > fifteenMinutesAfterEnd) {
+          reason = 'Shift ended';
+          isPast = true;
+        } else {
+          canClockIn = true;
+          if (now > shiftEnd) {
+            reason = 'Within grace period';
+          } else if (now < shiftStart) {
+            reason = 'Available early';
+          } else {
+            reason = 'Available now';
+          }
+        }
+        
+        options.push({
+          shift,
+          canClockIn,
+          reason,
+          isFuture,
+          isPast
+        });
+      } catch (error) {
+        console.error('Error processing shift:', error);
+      }
+    });
+    
+    return options;
+  };
+
+  const handleClockInPress = async () => {
+    if (!locationPermission) {
+      await requestLocationPermission();
+      if (!locationPermission) return;
+    }
+    
+    if (!currentLocation) {
+      Alert.alert('Location Error', 'Please wait for location to load');
+      return;
+    }
+    
+    const validation = validateLocation();
+    
+    if (!validation.isValid) {
+      Alert.alert(
+        'Cannot Clock In',
+        `You must be at a work location to clock in.\n\n${validation.message}`,
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+    
+    const shiftOptions = getAvailableShifts();
+    setAvailableShifts(shiftOptions);
+    setShowShiftSelectionModal(true);
+  };
+
+  const handleClockOutPress = async () => {
+    if (!currentShift) {
+      Alert.alert('Error', 'No active shift found');
+      return;
+    }
+    
+    if (!locationPermission) {
+      await requestLocationPermission();
+      if (!locationPermission) return;
+    }
+    
+    if (!currentLocation) {
+      Alert.alert('Location Error', 'Please wait for location to load');
+      return;
+    }
+    
+    const validation = validateLocation();
+    if (!validation.isValid) {
+      Alert.alert(
+        'Cannot Clock Out',
+        `You must be at a work location to clock out.\n\n${validation.message}`,
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+    
+    setShowClockOutModal(true);
+  };
+
+  const handleShiftSelection = (shiftOption: ShiftOption | null) => {
+    if (shiftOption) {
+      setSelectedShift(shiftOption.shift);
+    } else {
+      setSelectedShift(null);
+    }
+    setShowShiftSelectionModal(false);
+    setShowClockInModal(true);
+  };
+
+  const confirmClockIn = async () => {
+    try {
+      setIsLoading(true);
+      
+      if (!currentLocation) {
+        Alert.alert('Error', 'Location not available');
+        return;
+      }
+      
+      const locationData = {
+        latitude: currentLocation.latitude,
+        longitude: currentLocation.longitude
+      };
+      
+      let shiftId;
+      
+      if (!selectedShift) {
+        const now = new Date();
+        const endTime = new Date(now.getTime() + 8 * 60 * 60000);
+        
+        try {
+          const newShift = await shiftsAPI.createShift({
+            title: 'Unscheduled Work',
+            start_time: now.toISOString(),
+            end_time: endTime.toISOString(),
+            location: validateLocation().locationName || 'Work Location',
+            user_id: undefined,
+            type: 'open',
+            status: 'scheduled'
+          });
+          
+          shiftId = newShift.data._id;
+          
+          await shiftsAPI.updateShift(shiftId, {
+            user_id: user?._id,
+            type: 'assigned'
+          });
+          
+        } catch (createError: any) {
+          if (createError.response?.data?.message?.includes('already has a shift')) {
+            await fetchTodayShifts();
+            const existingShift = todayShifts.find(s => 
+              s.title === 'Unscheduled Work' && 
+              (s.status === 'scheduled' || s.status === 'in-progress' || s.status === 'late')
+            );
+            if (existingShift) {
+              shiftId = existingShift._id;
+            } else {
+              throw createError;
+            }
+          } else {
+            throw createError;
+          }
+        }
+      } else {
+        shiftId = selectedShift._id;
+      }
+      
+      await shiftsAPI.clockIn(shiftId, locationData);
+      await fetchTodayShifts();
+      
+      setShowClockInModal(false);
+      setSelectedShift(null);
+      
+      Alert.alert(
+        'Success',
+        'You have successfully clocked in',
+        [{ text: 'OK' }]
+      );
+      
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to clock in. Please try again.';
+      
+      if (errorMessage.includes('already has a shift')) {
+        Alert.alert(
+          'Already Clocked In',
+          'You already have an active shift. Please check your current status.',
+          [{ text: 'OK', onPress: fetchTodayShifts }]
+        );
+      } else {
+        Alert.alert('Error', errorMessage);
+      }
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  // Add debug function to test location
-  const testLocationManually = async () => {
-    console.log('🧪 ========== MANUAL LOCATION TEST ==========');
-    console.log('📍 Current companyLocations:', companyLocations);
-    console.log('📍 Locations loaded?', locationsLoaded);
-    
-    await getCurrentLocation();
-    
-    console.log('🧪 ========== END MANUAL TEST ==========');
+  const confirmClockOut = async () => {
+    try {
+      if (!currentShift) {
+        Alert.alert('Error', 'No active shift found');
+        return;
+      }
+      
+      if (!currentLocation) {
+        Alert.alert('Error', 'Location not available');
+        return;
+      }
+      
+      setIsLoading(true);
+      
+      const locationData = {
+        latitude: currentLocation.latitude,
+        longitude: currentLocation.longitude
+      };
+      
+      await shiftsAPI.clockOut(currentShift._id, locationData);
+      await fetchTodayShifts();
+      
+      setShowClockOutModal(false);
+      
+      Alert.alert(
+        'Success',
+        'You have successfully clocked out',
+        [{ text: 'OK' }]
+      );
+      
+    } catch (error: any) {
+      Alert.alert('Error', 'Failed to clock out');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  return (
-    <ScrollView 
-      style={styles.container}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={refreshWithLocationCheck}
-          tintColor={theme === 'dark' ? '#3B82F6' : '#2563EB'}
-          colors={['#3B82F6']}
-          progressBackgroundColor={theme === 'dark' ? '#1F2937' : '#FFFFFF'}
-        />
-      }
+  const focusOnCurrentLocation = () => {
+    if (currentLocation && mapRef.current) {
+      mapRef.current.animateToRegion({
+        latitude: currentLocation.latitude,
+        longitude: currentLocation.longitude,
+        latitudeDelta: 0.005,
+        longitudeDelta: 0.005,
+      });
+    }
+  };
+
+  const focusOnLocation = (location: CompanyLocation) => {
+    if (mapRef.current) {
+      mapRef.current.animateToRegion({
+        latitude: location.latitude,
+        longitude: location.longitude,
+        latitudeDelta: 0.005,
+        longitudeDelta: 0.005,
+      });
+      setSelectedLocationIndex(companyLocations.findIndex(loc => 
+        loc.latitude === location.latitude && loc.longitude === location.longitude
+      ));
+    }
+  };
+
+  const validation = validateLocation();
+  const isAtWorkLocation = validation.isValid;
+
+  const renderShiftSelectionModal = () => (
+    <CustomModal
+      visible={showShiftSelectionModal}
+      onClose={() => setShowShiftSelectionModal(false)}
+      title="Clock In"
+      icon={Clock}
+      theme={theme}
     >
-      {/* Auto-refresh indicator */}
-      {autoRefreshCount > 0 && (
-        <View style={styles.autoRefreshIndicator}>
-          <RotateCcw size={12} color="#6B7280" />
-          <Text style={styles.autoRefreshText}>
-            Auto-refreshed {autoRefreshCount} time{autoRefreshCount !== 1 ? 's' : ''}
+      <ScrollView style={modalStyles.shiftsListContainer} showsVerticalScrollIndicator={false}>
+        <View style={modalStyles.modalHeaderCard}>
+          <View style={modalStyles.modalHeaderIcon}>
+            <Clock size={28} color={theme === 'dark' ? '#6366F1' : '#4F46E5'} />
+          </View>
+          <Text style={modalStyles.modalHeaderTitle}>Select Shift</Text>
+          <Text style={modalStyles.modalHeaderSubtitle}>
+            Choose from your scheduled shifts or start unscheduled work
           </Text>
         </View>
-      )}
-
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Text style={styles.title}>{t('timeTracking') || 'Time Tracking'}</Text>
-          <Text style={styles.date}>{formatDate(currentTime)}</Text>
-        </View>
-      </View>
-
-      <View style={styles.content}>
-        {/* Current Time Display */}
-        <View style={styles.timeDisplay}>
-          <Clock size={48} color={isClockedIn ? '#10B981' : '#6B7280'} />
-          <Text style={styles.currentTime}>{formatTime(currentTime)}</Text>
-          <Text style={styles.status}>
-            {isClockedIn ? (t('clockedIn') || 'Clocked In') : (t('clockedOut') || 'Clocked Out')}
-          </Text>
-        </View>
-
-        {/* Today's Shift Info */}
-        {currentShift ? (
-          <View style={styles.shiftCard}>
-            <View style={styles.shiftHeader}>
-              <Text style={styles.shiftTitle}>{currentShift.title}</Text>
-              <View style={[
-                styles.statusBadge,
-                { backgroundColor: getStatusColor(currentShift.status) }
-              ]}>
-                <Text style={styles.statusBadgeText}>
-                  {currentShift.status.replace('-', ' ').toUpperCase()}
-                </Text>
-              </View>
+        
+        {availableShifts.length > 0 ? (
+          <View style={modalStyles.shiftsSection}>
+            <View style={modalStyles.sectionHeader}>
+              <CalendarDays size={18} color={theme === 'dark' ? '#94A3B8' : '#64748B'} />
+              <Text style={modalStyles.sectionTitle}>Scheduled Shifts</Text>
             </View>
             
-            <View style={styles.shiftDetails}>
-              <View style={styles.shiftDetailRow}>
-                <Calendar size={16} color="#6B7280" />
-                <Text style={styles.shiftDetailText}>
-                  {formatTime(parseShiftDate(currentShift.start_time))} - {formatTime(parseShiftDate(currentShift.end_time))}
-                </Text>
-              </View>
-              
-              <View style={styles.shiftDetailRow}>
-                <Building size={16} color="#6B7280" />
-                <Text style={styles.shiftDetailText}>
-                  {currentShift.location || 'No location specified'}
-                </Text>
-              </View>
-              
-              <View style={styles.shiftDetailRow}>
-                <Text style={styles.shiftDetailText}>
-                  Duration: {getShiftDuration().toFixed(1)} hours
-                </Text>
-              </View>
-              
-              {user?.role === 'admin' && (
-                <View style={styles.shiftDetailRow}>
-                  <User size={16} color="#6B7280" />
-                  <Text style={styles.shiftDetailText}>
-                    Assigned to: {getShiftUserName(currentShift)}
+            {availableShifts.map((shiftOption, index) => (
+              <TouchableOpacity
+                key={index}
+                style={[
+                  modalStyles.shiftOptionCard,
+                  shiftOption.canClockIn && modalStyles.shiftOptionAvailable,
+                  shiftOption.isFuture && modalStyles.shiftOptionFuture,
+                  shiftOption.isPast && modalStyles.shiftOptionPast
+                ]}
+                onPress={() => handleShiftSelection(shiftOption)}
+                disabled={!shiftOption.canClockIn}
+              >
+                <View style={modalStyles.shiftOptionContent}>
+                  <View style={modalStyles.shiftOptionHeader}>
+                    <Text style={modalStyles.shiftOptionTitle}>
+                      {shiftOption.shift.title}
+                    </Text>
+                    {shiftOption.canClockIn ? (
+                      <View style={modalStyles.availableBadge}>
+                        <Check size={14} color="#FFFFFF" />
+                      </View>
+                    ) : shiftOption.isFuture ? (
+                      <View style={modalStyles.futureBadge}>
+                        <Clock size={14} color="#F59E0B" />
+                      </View>
+                    ) : (
+                      <View style={modalStyles.pastBadge}>
+                        <X size={14} color="#EF4444" />
+                      </View>
+                    )}
+                  </View>
+                  
+                  <View style={modalStyles.shiftOptionTime}>
+                    <Clock size={14} color={theme === 'dark' ? '#94A3B8' : '#64748B'} />
+                    <Text style={modalStyles.shiftOptionTimeText}>
+                      {formatTime(parseShiftDate(shiftOption.shift.start_time))} - {formatTime(parseShiftDate(shiftOption.shift.end_time))}
+                    </Text>
+                  </View>
+                  
+                  <Text style={[
+                    modalStyles.shiftOptionReason,
+                    shiftOption.canClockIn && modalStyles.reasonAvailable,
+                    shiftOption.isFuture && modalStyles.reasonFuture,
+                    shiftOption.isPast && modalStyles.reasonPast
+                  ]}>
+                    {shiftOption.reason}
                   </Text>
                 </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+        ) : (
+          <View style={modalStyles.emptyShiftsSection}>
+            <Calendar size={32} color={theme === 'dark' ? '#475569' : '#CBD5E1'} />
+            <Text style={modalStyles.emptyShiftsText}>
+              No scheduled shifts for today
+            </Text>
+            <Text style={modalStyles.emptyShiftsSubtext}>
+              You can start unscheduled work instead
+            </Text>
+          </View>
+        )}
+        
+        {availableShifts.length > 0 && (
+          <View style={modalStyles.dividerContainer}>
+            <View style={modalStyles.dividerLine} />
+            <Text style={modalStyles.dividerText}>OR</Text>
+            <View style={modalStyles.dividerLine} />
+          </View>
+        )}
+        
+        <TouchableOpacity
+          style={modalStyles.unscheduledOptionCard}
+          onPress={() => handleShiftSelection(null)}
+        >
+          <View style={modalStyles.unscheduledOptionContent}>
+            <View style={modalStyles.unscheduledIcon}>
+              <Zap size={20} color="#FFFFFF" />
+            </View>
+            <View style={modalStyles.unscheduledTextContainer}>
+              <Text style={modalStyles.unscheduledTitle}>Start Unscheduled Work</Text>
+              <Text style={modalStyles.unscheduledDescription}>
+                Clock in outside of your scheduled hours
+              </Text>
+            </View>
+            <View style={modalStyles.unscheduledArrow}>
+              <ChevronUp size={16} color={theme === 'dark' ? '#94A3B8' : '#64748B'} style={{ transform: [{ rotate: '90deg' }] }} />
+            </View>
+          </View>
+        </TouchableOpacity>
+        
+        <View style={[
+          modalStyles.locationStatusCard,
+          isAtWorkLocation ? modalStyles.locationStatusValid : modalStyles.locationStatusInvalid
+        ]}>
+          <View style={modalStyles.locationStatusHeader}>
+            <View style={[
+              modalStyles.locationStatusIcon,
+              isAtWorkLocation ? modalStyles.locationStatusIconValid : modalStyles.locationStatusIconInvalid
+            ]}>
+              {isAtWorkLocation ? (
+                <Check size={16} color="#FFFFFF" />
+              ) : (
+                <X size={16} color="#FFFFFF" />
               )}
             </View>
-            
-            {currentShift.clock_in_time && (
-              <View style={styles.clockInfo}>
-                <Text style={styles.clockInfoText}>
-                  Clocked in: {formatTime(parseShiftDate(currentShift.clock_in_time))}
-                </Text>
-                {currentShift.late_minutes && currentShift.late_minutes > 0 && (
-                  <Text style={styles.lateText}>
-                    Late by {currentShift.late_minutes} minutes
-                  </Text>
-                )}
+            <View style={modalStyles.locationStatusTextContainer}>
+              <Text style={[
+                modalStyles.locationStatusText,
+                { color: isAtWorkLocation ? '#059669' : '#EF4444' }
+              ]}>
+                {isAtWorkLocation ? 'At Work Location' : 'Not at Work Location'}
+              </Text>
+              <Text style={modalStyles.locationStatusDetail}>
+                {validation.message}
+              </Text>
+            </View>
+          </View>
+        </View>
+      </ScrollView>
+      
+      <View style={modalStyles.customModalActions}>
+        <TouchableOpacity
+          style={[modalStyles.customCancelButton, modalStyles.fullWidthButton]}
+          onPress={() => setShowShiftSelectionModal(false)}
+        >
+          <Text style={modalStyles.customCancelButtonText}>Cancel</Text>
+        </TouchableOpacity>
+      </View>
+    </CustomModal>
+  );
+
+  const renderClockInModal = () => (
+    <CustomModal
+      visible={showClockInModal}
+      onClose={() => {
+        setShowClockInModal(false);
+        setSelectedShift(null);
+      }}
+      title={selectedShift ? "Confirm Clock In" : "Start Unscheduled Work"}
+      icon={Clock}
+      theme={theme}
+    >
+      <ScrollView style={modalStyles.modalBody} showsVerticalScrollIndicator={false}>
+        {selectedShift ? (
+          <View style={modalStyles.shiftDetailsCard}>
+            <View style={modalStyles.shiftDetailHeader}>
+              <Text style={modalStyles.shiftDetailMainTitle}>{selectedShift.title}</Text>
+              <View style={modalStyles.shiftStatusBadge}>
+                <Text style={modalStyles.shiftStatusText}>Scheduled Shift</Text>
               </View>
-            )}
+            </View>
             
-            {/* Clock In/Out button */}
-            {isShiftAssignedToMe() && (
-              <ForceTouchable
-                style={[
-                  styles.shiftActionButton,
-                  isClockedIn ? styles.clockOutAction : styles.clockInAction
-                ]}
-                onPress={handleClockToggle}
-                disabled={isLoading}
-              >
-                <Clock size={16} color="#FFFFFF" />
-                <Text style={styles.shiftActionText}>
-                  {isLoading ? '...' : 
-                   isClockedIn ? (t('clockOut') || 'Clock Out') : (t('clockIn') || 'Clock In')}
+            <View style={modalStyles.detailRow}>
+              <View style={modalStyles.detailIconContainer}>
+                <Clock size={16} color={theme === 'dark' ? '#6366F1' : '#4F46E5'} />
+              </View>
+              <View style={modalStyles.detailTextContainer}>
+                <Text style={modalStyles.detailLabel}>Time</Text>
+                <Text style={modalStyles.detailValue}>
+                  {formatTime(parseShiftDate(selectedShift.start_time))} - {formatTime(parseShiftDate(selectedShift.end_time))}
                 </Text>
-              </ForceTouchable>
-            )}
+              </View>
+            </View>
             
-            {/* Not assigned to you warning */}
-            {!isShiftAssignedToMe() && user?.role === 'staff' && (
-              <View style={styles.notYourShiftWarning}>
-                <AlertCircle size={16} color="#F59E0B" />
-                <Text style={styles.notYourShiftText}>
-                  This shift is not assigned to you
-                </Text>
+            {selectedShift.location && (
+              <View style={modalStyles.detailRow}>
+                <View style={modalStyles.detailIconContainer}>
+                  <MapPin size={16} color={theme === 'dark' ? '#6366F1' : '#4F46E5'} />
+                </View>
+                <View style={modalStyles.detailTextContainer}>
+                  <Text style={modalStyles.detailLabel}>Location</Text>
+                  <Text style={modalStyles.detailValue}>
+                    {selectedShift.location}
+                  </Text>
+                </View>
               </View>
             )}
           </View>
         ) : (
-          <View style={styles.noShiftCard}>
-            <Calendar size={32} color="#6B7280" />
-            <Text style={styles.noShiftText}>No shift scheduled for today</Text>
-            <Text style={styles.noShiftSubtext}>
-              {user?.role === 'admin' 
-                ? 'No shifts scheduled for today' 
-                : 'You have no shifts assigned today'}
+          <View style={modalStyles.unscheduledInfoCard}>
+            <View style={modalStyles.unscheduledInfoIcon}>
+              <Zap size={28} color={theme === 'dark' ? '#6366F1' : '#4F46E5'} />
+            </View>
+            <Text style={modalStyles.unscheduledInfoTitle}>Unscheduled Work</Text>
+            <Text style={modalStyles.unscheduledInfoText}>
+              You are clocking in without a scheduled shift. This will create a work entry for today.
             </Text>
           </View>
         )}
-
-        {/* Location Information */}
-        <View style={styles.locationCard}>
-          <MapPin size={20} color="#6B7280" />
-          <View style={styles.locationInfo}>
-            <Text style={styles.locationTitle}>
-              {t('currentLocation') || 'Current Location'}
-            </Text>
-            <Text style={styles.locationText}>
-              {isLoading ? 'Getting location...' : location?.address || 'Location not available'}
-            </Text>
-            {location && (
-              <Text style={styles.locationCoords}>
-                {location.latitude.toFixed(6)}, {location.longitude.toFixed(6)}
-              </Text>
-            )}
-          </View>
-          <View style={[styles.statusDot, { 
-            backgroundColor: locationValidation?.isValid ? '#10B981' : '#EF4444' 
-          }]} />
-        </View>
-
-        {/* Location Validation Status */}
-        {locationValidation && (
-          <View style={[
-            styles.validationCard,
-            { 
-              backgroundColor: locationValidation.isValid ? 
-                (theme === 'dark' ? '#064E3B' : '#D1FAE5') : 
-                (theme === 'dark' ? '#7F1D1D' : '#FEE2E2')
-            }
-          ]}>
-            {locationValidation.isValid ? (
-              <CheckCircle size={20} color="#10B981" />
-            ) : (
-              <XCircle size={20} color="#EF4444" />
-            )}
-            <Text style={[
-              styles.validationText,
-              { color: locationValidation.isValid ? '#10B981' : '#EF4444' }
+        
+        <View style={[
+          modalStyles.locationStatusCard,
+          isAtWorkLocation ? modalStyles.locationStatusValid : modalStyles.locationStatusInvalid
+        ]}>
+          <View style={modalStyles.locationStatusHeader}>
+            <View style={[
+              modalStyles.locationStatusIcon,
+              isAtWorkLocation ? modalStyles.locationStatusIconValid : modalStyles.locationStatusIconInvalid
             ]}>
-              {companyLocations.length === 0 
-                ? 'No work locations configured' 
-                : locationValidation.message}
-            </Text>
-            
-          </View>
-        )}
-
-        {/* Work Locations Info */}
-        {companyLocations.length > 0 && (
-          <View style={styles.locationsCard}>
-            <View style={styles.locationsHeader}>
-              <Building size={20} color="#6B7280" />
-              <Text style={styles.locationsTitle}>
-                {companyDetails?.name ? `${companyDetails.name} Work Locations` : 'Work Locations'}
+              {isAtWorkLocation ? (
+                <Check size={16} color="#FFFFFF" />
+              ) : (
+                <X size={16} color="#FFFFFF" />
+              )}
+            </View>
+            <View style={modalStyles.locationStatusTextContainer}>
+              <Text style={[
+                modalStyles.locationStatusText,
+                { color: isAtWorkLocation ? '#059669' : '#EF4444' }
+              ]}>
+                {isAtWorkLocation ? 'Location Verified' : 'Location Issue'}
+              </Text>
+              <Text style={modalStyles.locationStatusDetail}>
+                {validation.message}
               </Text>
             </View>
-            {companyLocations.filter(loc => loc.is_active).map((loc, index) => (
-              <View key={index} style={styles.locationItem}>
-                <View style={styles.locationItemHeader}>
-                  <Text style={styles.locationName}>{loc.name}</Text>
-                  <View style={[
-                    styles.locationStatusDot,
-                    { backgroundColor: loc.is_active ? '#10B981' : '#EF4444' }
-                  ]} />
+          </View>
+        </View>
+        
+        <View style={modalStyles.statsContainer}>
+          <View style={modalStyles.statItem}>
+            <Text style={modalStyles.statLabel}>Current Time</Text>
+            <Text style={modalStyles.statValue}>{formatTime(new Date())}</Text>
+          </View>
+          <View style={modalStyles.statDivider} />
+          <View style={modalStyles.statItem}>
+            <Text style={modalStyles.statLabel}>Status</Text>
+            <View style={[
+              modalStyles.statusIndicatorBadge,
+              isAtWorkLocation ? modalStyles.statusIndicatorBadgeValid : modalStyles.statusIndicatorBadgeInvalid
+            ]}>
+              <Text style={[
+                modalStyles.statusIndicatorBadgeText,
+                !isAtWorkLocation && modalStyles.statusIndicatorBadgeTextInvalid
+              ]}>
+                {isAtWorkLocation ? 'Valid' : 'Invalid'}
+              </Text>
+            </View>
+          </View>
+        </View>
+      </ScrollView>
+      
+      <View style={modalStyles.customModalActions}>
+        <TouchableOpacity
+          style={[modalStyles.customCancelButton, modalStyles.halfWidthButton]}
+          onPress={() => {
+            setShowClockInModal(false);
+            setSelectedShift(null);
+          }}
+          disabled={isLoading}
+        >
+          <Text style={modalStyles.customCancelButtonText}>Cancel</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity
+          style={[
+            modalStyles.customConfirmButton,
+            !isAtWorkLocation && modalStyles.disabledButton,
+            modalStyles.halfWidthButton
+          ]}
+          onPress={confirmClockIn}
+          disabled={!isAtWorkLocation || isLoading}
+        >
+          {isLoading ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <>
+              <Clock size={18} color="#FFFFFF" />
+              <Text style={modalStyles.customConfirmButtonText}>
+                {selectedShift ? 'Clock In' : 'Start Work'}
+              </Text>
+            </>
+          )}
+        </TouchableOpacity>
+      </View>
+    </CustomModal>
+  );
+
+  const renderClockOutModal = () => (
+    <CustomModal
+      visible={showClockOutModal}
+      onClose={() => setShowClockOutModal(false)}
+      title="Confirm Clock Out"
+      icon={Clock}
+      theme={theme}
+    >
+      <ScrollView style={modalStyles.modalBody} showsVerticalScrollIndicator={false}>
+        {currentShift && (
+          <View style={modalStyles.shiftDetailsCard}>
+            <View style={modalStyles.shiftDetailHeader}>
+              <Text style={modalStyles.shiftDetailMainTitle}>{currentShift.title}</Text>
+              <View style={modalStyles.shiftStatusBadge}>
+                <Text style={modalStyles.shiftStatusText}>Active Shift</Text>
+              </View>
+            </View>
+            
+            <View style={modalStyles.statsGrid}>
+              <View style={modalStyles.statCard}>
+                <View style={[modalStyles.statIconContainer, modalStyles.statIconContainerBlue]}>
+                  <Clock size={16} color={theme === 'dark' ? '#6366F1' : '#4F46E5'} />
                 </View>
-                <Text style={styles.locationCoords}>
-                  {loc.latitude.toFixed(4)}, {loc.longitude.toFixed(4)}
-                </Text>
-                <Text style={styles.locationRadius}>
-                  Radius: {loc.radius}m
+                <Text style={modalStyles.statCardLabel}>Started At</Text>
+                <Text style={modalStyles.statCardValue}>
+                  {formatTime(parseShiftDate(currentShift.clock_in_time!))}
                 </Text>
               </View>
-            ))}
+              
+              <View style={modalStyles.statCard}>
+                <View style={[modalStyles.statIconContainer, modalStyles.statIconContainerGray]}>
+                  <Clock size={16} color={theme === 'dark' ? '#94A3B8' : '#64748B'} />
+                </View>
+                <Text style={modalStyles.statCardLabel}>Current Time</Text>
+                <Text style={modalStyles.statCardValue}>
+                  {formatTime(new Date())}
+                </Text>
+              </View>
+              
+              <View style={[modalStyles.statCard, modalStyles.durationCard]}>
+                <View style={[modalStyles.statIconContainer, modalStyles.statIconContainerGreen]}>
+                  <Clock size={16} color="#059669" />
+                </View>
+                <Text style={modalStyles.statCardLabel}>Duration</Text>
+                <Text style={[modalStyles.statCardValue, modalStyles.durationValue]}>
+                  {formatDuration(clockedInDuration)}
+                </Text>
+              </View>
+            </View>
           </View>
         )}
+        
+        <View style={[
+          modalStyles.locationStatusCard,
+          isAtWorkLocation ? modalStyles.locationStatusValid : modalStyles.locationStatusInvalid
+        ]}>
+          <View style={modalStyles.locationStatusHeader}>
+            <View style={[
+              modalStyles.locationStatusIcon,
+              isAtWorkLocation ? modalStyles.locationStatusIconValid : modalStyles.locationStatusIconInvalid
+            ]}>
+              {isAtWorkLocation ? (
+                <Check size={16} color="#FFFFFF" />
+              ) : (
+                <X size={16} color="#FFFFFF" />
+              )}
+            </View>
+            <View style={modalStyles.locationStatusTextContainer}>
+              <Text style={[
+                modalStyles.locationStatusText,
+                { color: isAtWorkLocation ? '#059669' : '#EF4444' }
+              ]}>
+                {isAtWorkLocation ? 'Location Verified' : 'Location Issue'}
+              </Text>
+              <Text style={modalStyles.locationStatusDetail}>
+                {validation.message}
+              </Text>
+            </View>
+          </View>
+        </View>
+        
+        <View style={modalStyles.warningCard}>
+          <AlertTriangle size={18} color="#F59E0B" />
+          <Text style={modalStyles.warningText}>
+            Make sure you have completed all work tasks before clocking out.
+          </Text>
+        </View>
+      </ScrollView>
+      
+      <View style={modalStyles.customModalActions}>
+        <TouchableOpacity
+          style={[modalStyles.customCancelButton, modalStyles.halfWidthButton]}
+          onPress={() => setShowClockOutModal(false)}
+          disabled={isLoading}
+        >
+          <Text style={modalStyles.customCancelButtonText}>Cancel</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity
+          style={[
+            modalStyles.customConfirmButton,
+            modalStyles.clockOutButton,
+            !isAtWorkLocation && modalStyles.disabledButton,
+            modalStyles.halfWidthButton
+          ]}
+          onPress={confirmClockOut}
+          disabled={!isAtWorkLocation || isLoading}
+        >
+          {isLoading ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <>
+              <Clock size={18} color="#FFFFFF" />
+              <Text style={modalStyles.customConfirmButtonText}>Clock Out</Text>
+            </>
+          )}
+        </TouchableOpacity>
+      </View>
+    </CustomModal>
+  );
 
-        {/* Location Permission Button */}
-        {!locationPermission && (
-          <ForceTouchable
-            style={[styles.locationButton, isLoading && styles.disabledButton]}
-            onPress={requestLocationPermission}
-            disabled={isLoading}
+  return (
+    <View style={styles.container}>
+      <StatusBar 
+        barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} 
+        translucent 
+        backgroundColor="transparent" 
+      />
+      
+      <View style={styles.mapContainer}>
+        <MapView
+          ref={mapRef}
+          style={styles.map}
+          provider={PROVIDER_GOOGLE}
+          region={region}
+          onRegionChangeComplete={setRegion}
+          showsUserLocation={locationPermission}
+          showsMyLocationButton={false}
+          loadingEnabled={true}
+          scrollEnabled={true}
+          zoomEnabled={true}
+          pitchEnabled={true}
+          rotateEnabled={true}
+          initialRegion={{
+            latitude: currentLocation?.latitude || 27.7172,
+            longitude: currentLocation?.longitude || 85.3240,
+            latitudeDelta: 0.001,
+            longitudeDelta: 0.001,
+          }}
+        >
+          {companyLocations.map((location, index) => (
+            <React.Fragment key={index}>
+              <Marker
+                coordinate={{
+                  latitude: location.latitude,
+                  longitude: location.longitude,
+                }}
+                title={location.name}
+                description={`Radius: ${location.radius}m`}
+                pinColor={selectedLocationIndex === index ? 
+                  (theme === 'dark' ? '#818CF8' : '#4F46E5') : 
+                  '#059669'}
+              />
+              <Circle
+                center={{
+                  latitude: location.latitude,
+                  longitude: location.longitude,
+                }}
+                radius={location.radius}
+                strokeColor={selectedLocationIndex === index ? 
+                  (theme === 'dark' ? '#818CF8' : '#4F46E5') : 
+                  '#059669'}
+                fillColor={selectedLocationIndex === index ? 
+                  (theme === 'dark' ? 'rgba(129, 140, 248, 0.1)' : 'rgba(79, 70, 229, 0.1)') : 
+                  'rgba(5, 150, 105, 0.1)'}
+                strokeWidth={1}
+              />
+            </React.Fragment>
+          ))}
+        </MapView>
+      </View>
+
+      <View style={styles.header}>
+        <View style={styles.headerContent}>
+          <View style={styles.timeSection}>
+            <Text style={styles.currentTime}>{formatTime(currentTime)}</Text>
+            <Text style={styles.currentDate}>{formatDate(currentTime)}</Text>
+          </View>
+          
+          <View style={styles.statusSection}>
+            <View style={[
+              styles.statusPill,
+              { backgroundColor: isClockedIn ? '#059669' : (theme === 'dark' ? '#475569' : '#CBD5E1') }
+            ]}>
+              <View style={[
+                styles.statusDot,
+                { backgroundColor: isClockedIn ? '#FFFFFF' : (theme === 'dark' ? '#94A3B8' : '#64748B') }
+              ]} />
+              <Text style={styles.statusText}>
+                {isClockedIn ? 'Clocked In' : 'Clocked Out'}
+              </Text>
+            </View>
+            
+            {isClockedIn && (
+              <View style={[
+                styles.timerContainer,
+                { backgroundColor: theme === 'dark' ? 'rgba(5, 150, 105, 0.2)' : 'rgba(16, 185, 129, 0.1)' }
+              ]}>
+                <Clock size={12} color="#059669" />
+                <Text style={styles.timerText}>
+                  {formatDuration(clockedInDuration)}
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </View>
+
+      {isClockedIn && currentShift && (
+        <View style={styles.currentShiftCard}>
+          <View style={styles.currentShiftContent}>
+            <View style={styles.shiftIconContainer}>
+              <Briefcase size={20} color="#FFFFFF" />
+            </View>
+            <View style={styles.shiftInfo}>
+              <Text style={styles.shiftTitle} numberOfLines={1}>
+                {currentShift.title}
+              </Text>
+              <View style={styles.shiftMeta}>
+                <View style={styles.shiftMetaItem}>
+                  <Clock size={12} color={theme === 'dark' ? '#94A3B8' : '#64748B'} />
+                  <Text style={styles.shiftMetaText}>
+                    Started {formatTime(parseShiftDate(currentShift.clock_in_time!))}
+                  </Text>
+                </View>
+              </View>
+            </View>
+            <View style={styles.shiftDurationContainer}>
+              <Text style={styles.shiftDuration}>
+                {formatDuration(clockedInDuration)}
+              </Text>
+            </View>
+          </View>
+        </View>
+      )}
+
+      <TouchableOpacity 
+        style={styles.locationButton}
+        onPress={focusOnCurrentLocation}
+      >
+        <Navigation size={20} color={theme === 'dark' ? '#FFFFFF' : '#1E293B'} />
+      </TouchableOpacity>
+
+      <View style={styles.actionContainer}>
+        {!isClockedIn ? (
+          <TouchableOpacity
+            style={[
+              styles.clockInButton,
+              (!isAtWorkLocation || isLoading) && styles.disabledButton
+            ]}
+            onPress={handleClockInPress}
+            disabled={!isAtWorkLocation || isLoading}
+            activeOpacity={0.9}
           >
-            <Navigation size={20} color="#FFFFFF" />
-            <Text style={styles.locationButtonText}>
-              {isLoading ? 'Requesting...' : (t('enableLocation') || 'Enable Location')}
-            </Text>
-          </ForceTouchable>
+            <View style={styles.buttonContent}>
+              <Clock size={28} color="#FFFFFF" />
+              <Text style={styles.clockInButtonText}>
+                {isLoading ? '...' : 'Clock In'}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={[
+              styles.clockOutButton,
+              (!isAtWorkLocation || isLoading) && styles.disabledButton
+            ]}
+            onPress={handleClockOutPress}
+            disabled={!isAtWorkLocation || isLoading}
+            activeOpacity={0.9}
+          >
+            <View style={styles.buttonContent}>
+              <Clock size={28} color="#FFFFFF" />
+              <Text style={styles.clockOutButtonText}>
+                {isLoading ? '...' : 'Clock Out'}
+              </Text>
+            </View>
+          </TouchableOpacity>
         )}
       </View>
-    </ScrollView>
+
+      <TouchableOpacity 
+        style={[
+          styles.locationBar,
+          isAtWorkLocation ? styles.locationBarValid : styles.locationBarInvalid
+        ]}
+        onPress={() => setShowLocationDetails(!showLocationDetails)}
+        activeOpacity={0.8}
+      >
+        <View style={styles.locationBarContent}>
+          <View style={[
+            styles.locationBarIcon,
+            isAtWorkLocation ? styles.locationBarIconValid : styles.locationBarIconInvalid
+          ]}>
+            {isAtWorkLocation ? (
+              <Check size={16} color="#FFFFFF" />
+            ) : (
+              <X size={16} color="#FFFFFF" />
+            )}
+          </View>
+          <View style={styles.locationBarTextContainer}>
+            <Text style={styles.locationBarTitle}>
+              {isAtWorkLocation ? 'At Work Location' : 'Location Issue'}
+            </Text>
+            <Text style={styles.locationBarText}>
+              {validation.message}
+            </Text>
+          </View>
+          {showLocationDetails ? (
+            <ChevronUp size={20} color="#FFFFFF" />
+          ) : (
+            <ChevronDown size={20} color="#FFFFFF" />
+          )}
+        </View>
+      </TouchableOpacity>
+
+      {showLocationDetails && (
+        <Modal
+          transparent={true}
+          animationType="slide"
+          visible={showLocationDetails}
+          onRequestClose={() => setShowLocationDetails(false)}
+        >
+          <View style={styles.locationModalOverlay}>
+            <BlurView intensity={20} style={StyleSheet.absoluteFill} tint={theme === 'dark' ? 'dark' : 'light'} />
+            <TouchableOpacity 
+              style={styles.locationModalBackdrop}
+              activeOpacity={1}
+              onPress={() => setShowLocationDetails(false)}
+            />
+            <View style={styles.locationModalContent}>
+              <View style={styles.locationModalHeader}>
+                <View style={styles.locationModalTitleContainer}>
+                  <Building size={24} color={theme === 'dark' ? '#6366F1' : '#4F46E5'} />
+                  <Text style={styles.locationModalTitle}>Work Locations</Text>
+                </View>
+                <TouchableOpacity onPress={() => setShowLocationDetails(false)} style={styles.modalCloseButton}>
+                  <X size={24} color={theme === 'dark' ? '#94A3B8' : '#64748B'} />
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={styles.locationModalBody} showsVerticalScrollIndicator={false}>
+                {companyLocations.length > 0 ? (
+                  companyLocations.map((location, index) => {
+                    const distance = currentLocation ? 
+                      calculateDistance(
+                        currentLocation.latitude,
+                        currentLocation.longitude,
+                        location.latitude,
+                        location.longitude
+                      ) : 0;
+                    
+                    const isWithinRange = distance <= location.radius;
+                    
+                    return (
+                      <TouchableOpacity
+                        key={index}
+                        style={[
+                          styles.workLocationCard,
+                          isWithinRange && styles.workLocationCardActive,
+                          selectedLocationIndex === index && styles.workLocationCardSelected
+                        ]}
+                        onPress={() => focusOnLocation(location)}
+                      >
+                        <View style={styles.workLocationHeader}>
+                          <View style={styles.workLocationIcon}>
+                            {location.name.includes('Office') || location.name.includes('Main') ? (
+                              <Building size={18} color={isWithinRange ? '#059669' : (theme === 'dark' ? '#94A3B8' : '#64748B')} />
+                            ) : location.name.includes('Home') ? (
+                              <Home size={18} color={isWithinRange ? '#059669' : (theme === 'dark' ? '#94A3B8' : '#64748B')} />
+                            ) : (
+                              <MapPin size={18} color={isWithinRange ? '#059669' : (theme === 'dark' ? '#94A3B8' : '#64748B')} />
+                            )}
+                          </View>
+                          <View style={styles.workLocationInfo}>
+                            <Text style={styles.workLocationName}>{location.name}</Text>
+                            <Text style={styles.workLocationDistance}>
+                              {Math.round(distance)}m away
+                            </Text>
+                          </View>
+                          {isWithinRange ? (
+                            <View style={styles.locationStatusIndicator}>
+                              <Check size={14} color="#059669" />
+                            </View>
+                          ) : (
+                            <View style={styles.locationStatusIndicator}>
+                              <X size={14} color="#EF4444" />
+                            </View>
+                          )}
+                        </View>
+                        
+                        {location.address && (
+                          <Text style={styles.workLocationAddress}>
+                            {location.address}
+                          </Text>
+                        )}
+                        
+                        <View style={styles.workLocationFooter}>
+                          <View style={styles.radiusBadge}>
+                            <Text style={styles.radiusText}>Radius: {location.radius}m</Text>
+                          </View>
+                          <TouchableOpacity
+                            style={styles.focusButton}
+                            onPress={() => focusOnLocation(location)}
+                          >
+                            <Text style={styles.focusButtonText}>View on Map</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })
+                ) : (
+                  <View style={styles.noLocationsCard}>
+                    <Building size={32} color={theme === 'dark' ? '#475569' : '#CBD5E1'} />
+                    <Text style={styles.noLocationsText}>No work locations configured</Text>
+                    <Text style={styles.noLocationsSubtext}>
+                      Contact your administrator to set up work locations
+                    </Text>
+                  </View>
+                )}
+                
+                {!locationPermission && (
+                  <View style={styles.permissionCard}>
+                    <Shield size={24} color="#F59E0B" />
+                    <Text style={styles.permissionTitle}>
+                      Location Services Required
+                    </Text>
+                    <Text style={styles.permissionText}>
+                      Enable location services to use clock in/out features
+                    </Text>
+                    <TouchableOpacity
+                      style={styles.enableButton}
+                      onPress={requestLocationPermission}
+                    >
+                      <Text style={styles.enableButtonText}>Enable Location</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {renderShiftSelectionModal()}
+      {renderClockInModal()}
+      {renderClockOutModal()}
+    </View>
   );
 }
 
-function createStyles(theme: string) {
-  const isDark = theme === 'dark';
-  
-  return StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: isDark ? '#111827' : '#F9FAFB',
-    },
-    autoRefreshIndicator: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingVertical: 4,
-      backgroundColor: isDark ? '#1F2937' : '#E5E7EB',
-      gap: 6,
-    },
-    autoRefreshText: {
-      fontSize: 11,
-      color: '#6B7280',
-    },
-    header: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'flex-start',
-      padding: 20,
-      paddingTop: 60,
-      backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
-      borderBottomWidth: 1,
-      borderBottomColor: isDark ? '#374151' : '#E5E7EB',
-    },
-    headerLeft: {
-      flex: 1,
-    },
-    title: {
-      fontSize: 24,
-      fontWeight: '700',
-      color: isDark ? '#F9FAFB' : '#111827',
-      marginBottom: 4,
-    },
-    date: {
-      fontSize: 14,
-      color: isDark ? '#9CA3AF' : '#6B7280',
-    },
-    refreshButton: {
-      padding: 8,
-      marginLeft: 8,
-    },
-    content: {
-      padding: 20,
-    },
-    timeDisplay: {
-      alignItems: 'center',
-      marginBottom: 20,
-      padding: 32,
-      backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
-      borderRadius: 16,
-      ...Platform.select({
-        android: { elevation: 2 },
-        ios: {
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: 0.1,
-          shadowRadius: 4,
-        },
-      }),
-    },
-    currentTime: {
-      fontSize: 36,
-      fontWeight: '700',
-      color: isDark ? '#F9FAFB' : '#111827',
-      marginTop: 16,
-    },
-    status: {
-      fontSize: 16,
-      color: isDark ? '#9CA3AF' : '#6B7280',
-      marginTop: 8,
-    },
-    shiftCard: {
-      backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
-      borderRadius: 12,
-      padding: 16,
-      marginBottom: 16,
-      ...Platform.select({
-        android: { elevation: 1 },
-      }),
-    },
-    shiftHeader: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      marginBottom: 12,
-    },
-    shiftTitle: {
-      fontSize: 18,
-      fontWeight: '600',
-      color: isDark ? '#F9FAFB' : '#111827',
-      flex: 1,
-    },
-    statusBadge: {
-      paddingHorizontal: 8,
-      paddingVertical: 4,
-      borderRadius: 12,
-      marginLeft: 8,
-    },
-    statusBadgeText: {
-      fontSize: 10,
-      fontWeight: '600',
-      color: '#FFFFFF',
-    },
-    shiftDetails: {
-      gap: 8,
-      marginBottom: 12,
-    },
-    shiftDetailRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-    },
-    shiftDetailText: {
-      fontSize: 14,
-      color: isDark ? '#9CA3AF' : '#6B7280',
-    },
-    clockInfo: {
-      marginTop: 12,
-      paddingTop: 12,
-      borderTopWidth: 1,
-      borderTopColor: isDark ? '#374151' : '#E5E7EB',
-      marginBottom: 12,
-    },
-    clockInfoText: {
-      fontSize: 14,
-      fontWeight: '500',
-      color: isDark ? '#F9FAFB' : '#111827',
-    },
-    lateText: {
-      fontSize: 14,
-      color: '#F59E0B',
-      fontWeight: '500',
-      marginTop: 4,
-    },
-    shiftActionButton: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: 8,
-      padding: 12,
-      borderRadius: 8,
-      marginTop: 8,
-    },
-    clockInAction: {
-      backgroundColor: '#10B981',
-    },
-    clockOutAction: {
-      backgroundColor: '#EF4444',
-    },
-    shiftActionText: {
-      fontSize: 14,
-      fontWeight: '600',
-      color: '#FFFFFF',
-    },
-    noShiftCard: {
-      backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
-      borderRadius: 12,
-      padding: 24,
-      alignItems: 'center',
-      marginBottom: 16,
-    },
-    noShiftText: {
-      marginTop: 12,
-      fontSize: 16,
-      color: isDark ? '#F9FAFB' : '#111827',
-      fontWeight: '500',
-    },
-    noShiftSubtext: {
-      fontSize: 14,
-      color: isDark ? '#9CA3AF' : '#6B7280',
-      marginTop: 4,
-      textAlign: 'center',
-    },
-    locationCard: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
-      padding: 16,
-      borderRadius: 12,
-      marginBottom: 16,
-      ...Platform.select({
-        android: { elevation: 1 },
-      }),
-    },
-    locationInfo: {
-      flex: 1,
-      marginLeft: 12,
-    },
-    locationTitle: {
-      fontSize: 14,
-      fontWeight: '500',
-      color: isDark ? '#F9FAFB' : '#111827',
-      marginBottom: 4,
-    },
-    locationText: {
-      fontSize: 16,
-      fontWeight: '600',
-      color: isDark ? '#F9FAFB' : '#111827',
-      marginBottom: 4,
-    },
-    locationCoords: {
-      fontSize: 12,
-      color: isDark ? '#9CA3AF' : '#6B7280',
-    },
-    statusDot: {
-      width: 12,
-      height: 12,
-      borderRadius: 6,
-    },
-    validationCard: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      padding: 12,
-      borderRadius: 8,
-      marginBottom: 16,
-      gap: 8,
-    },
-    validationText: {
-      flex: 1,
-      fontSize: 14,
-      fontWeight: '500',
-    },
-    refreshIndicator: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 4,
-      marginLeft: 8,
-    },
-    refreshIndicatorText: {
-      fontSize: 10,
-      color: '#6B7280',
-      fontStyle: 'italic',
-    },
-    locationsCard: {
-      backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
-      borderRadius: 12,
-      padding: 16,
-      marginBottom: 16,
-    },
-    locationsHeader: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-      marginBottom: 12,
-    },
-    locationsTitle: {
-      fontSize: 16,
-      fontWeight: '600',
-      color: isDark ? '#F9FAFB' : '#111827',
-    },
-    locationItem: {
-      marginBottom: 12,
-      paddingBottom: 12,
-      borderBottomWidth: 1,
-      borderBottomColor: isDark ? '#374151' : '#E5E7EB',
-    },
-    locationItemHeader: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      marginBottom: 4,
-    },
-    locationName: {
-      fontSize: 14,
-      fontWeight: '500',
-      color: isDark ? '#F9FAFB' : '#111827',
-    },
-    locationStatusDot: {
-      width: 8,
-      height: 8,
-      borderRadius: 4,
-    },
-    locationRadius: {
-      fontSize: 12,
-      color: isDark ? '#9CA3AF' : '#6B7280',
-      marginTop: 2,
-    },
-    locationButton: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: '#2563EB',
-      borderRadius: 12,
-      paddingVertical: 16,
-      marginBottom: 16,
-      gap: 8,
-    },
-    disabledButton: {
-      opacity: 0.5,
-    },
-    locationButtonText: {
-      fontSize: 16,
-      fontWeight: '600',
-      color: '#FFFFFF',
-    },
-    notYourShiftWarning: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: 8,
-      backgroundColor: isDark ? '#7C2D12' : '#FEF3C7',
-      padding: 12,
-      borderRadius: 8,
-      marginTop: 12,
-    },
-    notYourShiftText: {
-      fontSize: 14,
-      fontWeight: '500',
-      color: isDark ? '#F59E0B' : '#92400E',
-    },
-  });
-}
+const createStyles = (theme: string) => StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: theme === 'dark' ? '#0F172A' : '#F8FAFC',
+  },
+  mapContainer: {
+    marginTop: Constants.statusBarHeight,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  map: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  header: {
+    position: 'absolute',
+    top: Constants.statusBarHeight + 20,
+    left: 20,
+    right: 20,
+    zIndex: 900,
+  },
+  headerContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  timeSection: {
+    flex: 1,
+  },
+  currentTime: {
+    fontSize: 32,
+    fontWeight: '700',
+    color: theme === 'dark' ? '#FFFFFF' : '#1E293B',
+    fontFamily: Platform.OS === 'ios' ? 'SF Pro Display' : 'Roboto',
+    letterSpacing: -0.5,
+  },
+  currentDate: {
+    fontSize: 14,
+    color: theme === 'dark' ? 'rgba(255, 255, 255, 0.7)' : '#64748B',
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  statusSection: {
+    alignItems: 'flex-end',
+    gap: 8,
+  },
+  statusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    gap: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  statusText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: theme === 'dark' ? '#FFFFFF' : '#1E293B',
+  },
+  timerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(5, 150, 105, 0.2)',
+  },
+  timerText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#059669',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  locationButton: {
+    position: 'absolute',
+    top: Constants.statusBarHeight + 120,
+    right: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: theme === 'dark' ? 'rgba(30, 41, 59, 0.9)' : 'rgba(255, 255, 255, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    zIndex: 900,
+  },
+  currentShiftCard: {
+    position: 'absolute',
+    top: Constants.statusBarHeight + 90,
+    left: 20,
+    right: 20,
+    backgroundColor: theme === 'dark' ? 'rgba(30, 41, 59, 0.9)' : 'rgba(255, 255, 255, 0.9)',
+    borderRadius: 16,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
+    borderWidth: 1,
+    borderColor: theme === 'dark' ? '#334155' : '#E2E8F0',
+    zIndex: 900,
+  },
+  currentShiftContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  shiftIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: theme === 'dark' ? '#6366F1' : '#4F46E5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  shiftInfo: {
+    flex: 1,
+  },
+  shiftTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: theme === 'dark' ? '#F1F5F9' : '#1E293B',
+    marginBottom: 4,
+  },
+  shiftMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  shiftMetaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  shiftMetaText: {
+    fontSize: 12,
+    color: theme === 'dark' ? '#94A3B8' : '#64748B',
+  },
+  shiftDurationContainer: {
+    marginLeft: 12,
+  },
+  shiftDuration: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#059669',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  actionContainer: {
+    position: 'absolute',
+    bottom: 100,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 800,
+  },
+  buttonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  clockInButton: {
+    backgroundColor: theme === 'dark' ? '#6366F1' : '#4F46E5',
+    borderRadius: 24,
+    paddingVertical: 18,
+    paddingHorizontal: 36,
+    shadowColor: theme === 'dark' ? '#6366F1' : '#4F46E5',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  clockOutButton: {
+    backgroundColor: '#EF4444',
+    borderRadius: 24,
+    paddingVertical: 18,
+    paddingHorizontal: 36,
+    shadowColor: '#EF4444',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  disabledButton: {
+    opacity: 0.5,
+  },
+  clockInButtonText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: 0.3,
+  },
+  clockOutButtonText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: 0.3,
+  },
+  locationBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    zIndex: 850,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+  },
+  locationBarValid: {
+    backgroundColor: '#059669',
+  },
+  locationBarInvalid: {
+    backgroundColor: '#DC2626',
+  },
+  locationBarContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    gap: 12,
+  },
+  locationBarIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  locationBarIconValid: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  locationBarIconInvalid: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  locationBarTextContainer: {
+    flex: 1,
+  },
+  locationBarTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    marginBottom: 2,
+  },
+  locationBarText: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.9)',
+  },
+  locationModalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  locationModalBackdrop: {
+    flex: 1,
+  },
+  locationModalContent: {
+    backgroundColor: theme === 'dark' ? '#1E293B' : '#FFFFFF',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '85%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 12,
+    borderWidth: 1,
+    borderColor: theme === 'dark' ? '#334155' : '#E2E8F0',
+    borderBottomWidth: 0,
+  },
+  locationModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: theme === 'dark' ? '#334155' : '#F1F5F9',
+  },
+  locationModalTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  locationModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: theme === 'dark' ? '#F1F5F9' : '#1E293B',
+  },
+  modalCloseButton: {
+    padding: 4,
+  },
+  locationModalBody: {
+    padding: 20,
+    paddingBottom: 20,
+  },
+  workLocationCard: {
+    backgroundColor: theme === 'dark' ? '#1E293B' : '#FFFFFF',
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: theme === 'dark' ? '#334155' : '#E2E8F0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  workLocationCardActive: {
+    borderColor: '#10B981',
+    backgroundColor: theme === 'dark' ? '#064E3B' : '#F0FDF4',
+  },
+  workLocationCardSelected: {
+    borderColor: theme === 'dark' ? '#818CF8' : '#4F46E5',
+    borderWidth: 2,
+  },
+  workLocationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    gap: 10,
+  },
+  workLocationIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: theme === 'dark' ? '#334155' : '#F8FAFC',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  workLocationInfo: {
+    flex: 1,
+  },
+  workLocationName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: theme === 'dark' ? '#F1F5F9' : '#1E293B',
+    marginBottom: 2,
+  },
+  workLocationDistance: {
+    fontSize: 12,
+    color: theme === 'dark' ? '#94A3B8' : '#64748B',
+  },
+  locationStatusIndicator: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: theme === 'dark' ? '#334155' : '#F8FAFC',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  workLocationAddress: {
+    fontSize: 13,
+    color: theme === 'dark' ? '#CBD5E1' : '#475569',
+    marginBottom: 12,
+    lineHeight: 18,
+  },
+  workLocationFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  radiusBadge: {
+    backgroundColor: theme === 'dark' ? '#334155' : '#F1F5F9',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
+  },
+  radiusText: {
+    fontSize: 11,
+    color: theme === 'dark' ? '#94A3B8' : '#64748B',
+    fontWeight: '500',
+  },
+  focusButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: theme === 'dark' ? '#6366F1' : '#4F46E5',
+    borderRadius: 10,
+  },
+  focusButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  noLocationsCard: {
+    backgroundColor: theme === 'dark' ? '#1E293B' : '#FFFFFF',
+    borderRadius: 14,
+    padding: 20,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: theme === 'dark' ? '#334155' : '#E2E8F0',
+    marginBottom: 12,
+  },
+  noLocationsText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: theme === 'dark' ? '#F1F5F9' : '#1E293B',
+    marginTop: 12,
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  noLocationsSubtext: {
+    fontSize: 13,
+    color: theme === 'dark' ? '#94A3B8' : '#64748B',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  permissionCard: {
+    backgroundColor: theme === 'dark' ? '#7F1D1D' : '#FEF2F2',
+    borderRadius: 14,
+    padding: 20,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: theme === 'dark' ? '#991B1B' : '#FEE2E2',
+  },
+  permissionTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: theme === 'dark' ? '#FCA5A5' : '#92400E',
+    textAlign: 'center',
+    marginTop: 12,
+    marginBottom: 6,
+  },
+  permissionText: {
+    fontSize: 13,
+    color: theme === 'dark' ? '#FCA5A5' : '#92400E',
+    textAlign: 'center',
+    marginBottom: 16,
+    lineHeight: 18,
+  },
+  enableButton: {
+    backgroundColor: '#DC2626',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+  },
+  enableButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+});
+
+const createModalStyles = (theme: string) => StyleSheet.create({
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  modalBackdrop: {
+    flex: 1,
+  },
+  customModalContent: {
+    backgroundColor: theme === 'dark' ? '#1E293B' : '#FFFFFF',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '85%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 12,
+    borderWidth: 1,
+    borderColor: theme === 'dark' ? '#334155' : '#E2E8F0',
+    borderBottomWidth: 0,
+  },
+  customModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: theme === 'dark' ? '#334155' : '#F1F5F9',
+  },
+  modalTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  modalIcon: {
+    marginRight: 4,
+  },
+  customModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: theme === 'dark' ? '#F1F5F9' : '#1E293B',
+  },
+  closeButton: {
+    padding: 4,
+  },
+  modalBody: {
+    paddingHorizontal: 20,
+  },
+  modalHeaderCard: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalHeaderIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: theme === 'dark' ? '#334155' : '#F8FAFC',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  modalHeaderTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: theme === 'dark' ? '#F1F5F9' : '#1E293B',
+    marginBottom: 4,
+  },
+  modalHeaderSubtitle: {
+    fontSize: 14,
+    color: theme === 'dark' ? '#94A3B8' : '#64748B',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  shiftsSection: {
+    marginBottom: 20,
+  },
+  emptyShiftsSection: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+    marginBottom: 20,
+  },
+  emptyShiftsText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: theme === 'dark' ? '#F1F5F9' : '#1E293B',
+    marginTop: 12,
+    marginBottom: 4,
+  },
+  emptyShiftsSubtext: {
+    fontSize: 13,
+    color: theme === 'dark' ? '#94A3B8' : '#64748B',
+    textAlign: 'center',
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: theme === 'dark' ? '#CBD5E1' : '#475569',
+  },
+  shiftOptionCard: {
+    backgroundColor: theme === 'dark' ? '#334155' : '#F8FAFC',
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: theme === 'dark' ? '#475569' : '#E2E8F0',
+  },
+  shiftOptionAvailable: {
+    backgroundColor: theme === 'dark' ? '#064E3B' : '#F0FDF4',
+    borderColor: theme === 'dark' ? '#059669' : '#D1FAE5',
+  },
+  shiftOptionFuture: {
+    backgroundColor: theme === 'dark' ? '#78350F' : '#FFFBEB',
+    borderColor: theme === 'dark' ? '#D97706' : '#FDE68A',
+  },
+  shiftOptionPast: {
+    backgroundColor: theme === 'dark' ? '#334155' : '#F8FAFC',
+    borderColor: theme === 'dark' ? '#475569' : '#E2E8F0',
+    opacity: 0.6,
+  },
+  shiftOptionContent: {
+    flex: 1,
+  },
+  shiftOptionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  shiftOptionTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: theme === 'dark' ? '#F1F5F9' : '#1E293B',
+    flex: 1,
+  },
+  availableBadge: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#10B981',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  futureBadge: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#F59E0B',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pastBadge: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#EF4444',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  shiftOptionTime: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+  },
+  shiftOptionTimeText: {
+    fontSize: 13,
+    color: theme === 'dark' ? '#94A3B8' : '#64748B',
+    fontWeight: '500',
+  },
+  shiftOptionReason: {
+    fontSize: 12,
+    color: theme === 'dark' ? '#94A3B8' : '#94A3B8',
+    fontStyle: 'italic',
+  },
+  reasonAvailable: {
+    color: '#059669',
+    fontWeight: '500',
+  },
+  reasonFuture: {
+    color: '#F59E0B',
+    fontWeight: '500',
+  },
+  reasonPast: {
+    color: '#EF4444',
+    fontWeight: '500',
+  },
+  dividerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 20,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: theme === 'dark' ? '#475569' : '#E2E8F0',
+  },
+  dividerText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: theme === 'dark' ? '#94A3B8' : '#94A3B8',
+    marginHorizontal: 12,
+  },
+  unscheduledOptionCard: {
+    backgroundColor: theme === 'dark' ? '#334155' : '#F8FAFC',
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: theme === 'dark' ? '#475569' : '#E2E8F0',
+  },
+  unscheduledOptionContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  unscheduledIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: theme === 'dark' ? '#6366F1' : '#4F46E5',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  unscheduledTextContainer: {
+    flex: 1,
+  },
+  unscheduledTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: theme === 'dark' ? '#F1F5F9' : '#1E293B',
+    marginBottom: 2,
+  },
+  unscheduledDescription: {
+    fontSize: 13,
+    color: theme === 'dark' ? '#94A3B8' : '#64748B',
+    lineHeight: 18,
+  },
+  unscheduledArrow: {
+    width: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  locationStatusCard: {
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+  },
+  locationStatusValid: {
+    backgroundColor: theme === 'dark' ? '#064E3B' : '#F0FDF4',
+    borderColor: theme === 'dark' ? '#059669' : '#D1FAE5',
+  },
+  locationStatusInvalid: {
+    backgroundColor: theme === 'dark' ? '#7F1D1D' : '#FEF2F2',
+    borderColor: theme === 'dark' ? '#DC2626' : '#FEE2E2',
+  },
+  locationStatusHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  locationStatusIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  locationStatusIconValid: {
+    backgroundColor: '#10B981',
+  },
+  locationStatusIconInvalid: {
+    backgroundColor: '#EF4444',
+  },
+  locationStatusTextContainer: {
+    flex: 1,
+  },
+  locationStatusText: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  locationStatusDetail: {
+    fontSize: 13,
+    color: theme === 'dark' ? '#94A3B8' : '#64748B',
+  },
+  shiftsListContainer: {
+    maxHeight: height * 0.6,
+    paddingHorizontal: 20,
+    paddingTop: 8,
+  },
+  customModalActions: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 20,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: theme === 'dark' ? '#334155' : '#F1F5F9',
+  },
+  customCancelButton: {
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: theme === 'dark' ? '#334155' : '#F1F5F9',
+    alignItems: 'center',
+    flex: 1,
+  },
+  fullWidthButton: {
+    width: '100%',
+  },
+  halfWidthButton: {
+    flex: 1,
+  },
+  customCancelButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: theme === 'dark' ? '#F1F5F9' : '#475569',
+  },
+  customConfirmButton: {
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: theme === 'dark' ? '#6366F1' : '#4F46E5',
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+    flex: 1,
+    shadowColor: theme === 'dark' ? '#6366F1' : '#4F46E5',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  clockOutButton: {
+    backgroundColor: '#EF4444',
+    shadowColor: '#EF4444',
+  },
+  disabledButton: {
+    opacity: 0.5,
+  },
+  customConfirmButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  shiftDetailsCard: {
+    backgroundColor: theme === 'dark' ? '#334155' : '#F8FAFC',
+    borderRadius: 14,
+    padding: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: theme === 'dark' ? '#475569' : '#E2E8F0',
+  },
+  shiftDetailHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  shiftDetailMainTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: theme === 'dark' ? '#F1F5F9' : '#1E293B',
+    flex: 1,
+  },
+  shiftStatusBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
+    backgroundColor: theme === 'dark' ? '#475569' : '#F1F5F9',
+    marginLeft: 10,
+  },
+  shiftStatusText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: theme === 'dark' ? '#CBD5E1' : '#475569',
+  },
+  detailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 14,
+  },
+  detailIconContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: theme === 'dark' ? '#475569' : '#F1F5F9',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  detailTextContainer: {
+    flex: 1,
+  },
+  detailLabel: {
+    fontSize: 12,
+    color: theme === 'dark' ? '#94A3B8' : '#64748B',
+    marginBottom: 2,
+  },
+  detailValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: theme === 'dark' ? '#F1F5F9' : '#1E293B',
+  },
+  unscheduledInfoCard: {
+    backgroundColor: theme === 'dark' ? '#334155' : '#F8FAFC',
+    borderRadius: 14,
+    padding: 20,
+    alignItems: 'center',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: theme === 'dark' ? '#475569' : '#E2E8F0',
+  },
+  unscheduledInfoIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: theme === 'dark' ? '#475569' : '#F1F5F9',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  unscheduledInfoTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: theme === 'dark' ? '#F1F5F9' : '#1E293B',
+    marginBottom: 6,
+  },
+  unscheduledInfoText: {
+    fontSize: 14,
+    color: theme === 'dark' ? '#94A3B8' : '#64748B',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  statsContainer: {
+    flexDirection: 'row',
+    backgroundColor: theme === 'dark' ? '#1E293B' : '#FFFFFF',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: theme === 'dark' ? '#334155' : '#E2E8F0',
+  },
+  statItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  statLabel: {
+    fontSize: 11,
+    color: theme === 'dark' ? '#94A3B8' : '#64748B',
+    marginBottom: 4,
+  },
+  statValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: theme === 'dark' ? '#F1F5F9' : '#1E293B',
+  },
+  statDivider: {
+    width: 1,
+    backgroundColor: theme === 'dark' ? '#334155' : '#E2E8F0',
+    marginHorizontal: 12,
+  },
+  statusIndicatorBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
+    marginTop: 2,
+  },
+  statusIndicatorBadgeValid: {
+    backgroundColor: '#D1FAE5',
+  },
+  statusIndicatorBadgeInvalid: {
+    backgroundColor: '#FEE2E2',
+  },
+  statusIndicatorBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#059669',
+  },
+  statusIndicatorBadgeTextInvalid: {
+    color: '#DC2626',
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 14,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: theme === 'dark' ? '#1E293B' : '#FFFFFF',
+    borderRadius: 10,
+    padding: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: theme === 'dark' ? '#334155' : '#E2E8F0',
+  },
+  statIconContainer: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  statIconContainerBlue: {
+    backgroundColor: theme === 'dark' ? '#3730A3' : '#EEF2FF',
+  },
+  statIconContainerGray: {
+    backgroundColor: theme === 'dark' ? '#334155' : '#F8FAFC',
+  },
+  statIconContainerGreen: {
+    backgroundColor: theme === 'dark' ? '#065F46' : '#F0FDF4',
+  },
+  durationCard: {
+    backgroundColor: theme === 'dark' ? '#065F46' : '#F0FDF4',
+    borderColor: theme === 'dark' ? '#059669' : '#D1FAE5',
+  },
+  statCardLabel: {
+    fontSize: 10,
+    color: theme === 'dark' ? '#94A3B8' : '#64748B',
+    marginBottom: 2,
+    textAlign: 'center',
+  },
+  statCardValue: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: theme === 'dark' ? '#F1F5F9' : '#1E293B',
+    textAlign: 'center',
+  },
+  durationValue: {
+    color: '#059669',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  warningCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: theme === 'dark' ? '#78350F' : '#FFFBEB',
+    borderRadius: 10,
+    padding: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: theme === 'dark' ? '#D97706' : '#FDE68A',
+  },
+  warningText: {
+    fontSize: 13,
+    color: theme === 'dark' ? '#FCD34D' : '#92400E',
+    flex: 1,
+    lineHeight: 18,
+  },
+});

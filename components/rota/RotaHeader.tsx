@@ -1,13 +1,15 @@
 // components/rota/RotaHeader.tsx
-// Remove the duplicate weekNavigation section at the bottom
 
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Calendar, ChevronLeft, ChevronRight, Plus, ChevronDown, ChevronUp } from 'lucide-react-native';
 import ForceTouchable from '@/components/ForceTouchable';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import CreateShiftModal from '@/components/rota/CreateShiftModal';
+import { router } from 'expo-router';
+import { useRotaData } from '@/hooks/useRotaData';
+import { Shift } from '@/app/types/rota.types';
 
 interface RotaHeaderProps {
   selectedDate: Date;
@@ -28,8 +30,48 @@ export default function RotaHeader({
   const { user } = useAuth();
   const [showCalendar, setShowCalendar] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [shiftsByDay, setShiftsByDay] = useState<{[key: string]: number}>({});
   const styles = createStyles(theme);
   const isAdmin = user?.role === 'admin';
+
+  // Calculate start and end of month for filtering
+  const getMonthRange = (date: Date) => {
+    const start = new Date(date.getFullYear(), date.getMonth(), 1);
+    const end = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
+  };
+
+  const monthRange = getMonthRange(selectedDate);
+
+  // Fetch shifts for the current month
+  const { shifts } = useRotaData({
+    start_date: monthRange.start,
+    end_date: monthRange.end,
+    // If you want to show all shifts including other users
+    ...(isAdmin ? {} : { user_id: user?._id })
+  });
+
+  // Process shifts to count by day
+  useEffect(() => {
+    const shiftsCount: {[key: string]: number} = {};
+    
+    shifts.forEach((shift: Shift) => {
+      try {
+        const shiftDate = new Date(shift.start_time);
+        const dayKey = `${shiftDate.getFullYear()}-${shiftDate.getMonth() + 1}-${shiftDate.getDate()}`;
+        
+        if (!shiftsCount[dayKey]) {
+          shiftsCount[dayKey] = 0;
+        }
+        shiftsCount[dayKey]++;
+      } catch (error) {
+        console.error('Error processing shift date:', error);
+      }
+    });
+    
+    setShiftsByDay(shiftsCount);
+  }, [shifts]);
 
   const navigateWeek = (direction: 'prev' | 'next') => {
     const newDate = new Date(selectedDate);
@@ -102,16 +144,34 @@ export default function RotaHeader({
 
   const calendarDays = generateCalendar(selectedDate);
 
+  // Get shift count for a specific day
+  const getShiftCountForDay = (day: number | null) => {
+    if (!day) return 0;
+    
+    const dayKey = `${selectedDate.getFullYear()}-${selectedDate.getMonth() + 1}-${day}`;
+    return shiftsByDay[dayKey] || 0;
+  };
+
+  // Get indicator color based on shift count
+  const getIndicatorColor = (count: number) => {
+    if (count === 0) return 'transparent';
+    if (count <= 3) return theme === 'dark' ? '#10B981' : '#059669'; // Green for few shifts
+    if (count <= 6) return theme === 'dark' ? '#F59E0B' : '#D97706'; // Orange for moderate shifts
+    return theme === 'dark' ? '#EF4444' : '#DC2626'; // Red for many shifts
+  };
+
   return (
     <>
       <View style={styles.header}>
+        {/* Header with Back Button - Similar to roles management */}
         <View style={styles.headerTop}>
-          <Text style={styles.title}>Rota</Text>
-          {isAdmin && (
-            <ForceTouchable style={styles.addButton} onPress={handleCreateShift}>
-              <Plus size={24} color={theme === 'dark' ? '#F9FAFB' : '#374151'} />
-            </ForceTouchable>
-          )}
+          <TouchableOpacity 
+            style={styles.backButton}
+            onPress={() => router.back()}
+          >
+            <ChevronLeft size={24} color={theme === 'dark' ? '#fff' : '#000'} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Rota Schedule</Text>
         </View>
 
         {/* Calendar Toggle */}
@@ -156,32 +216,73 @@ export default function RotaHeader({
               ))}
               
               {/* Calendar days */}
-              {calendarDays.map((day, index) => (
-                <ForceTouchable
-                  key={index}
-                  onPress={() => { if (day) handleDateSelect(day); }}
-                  disabled={!day}
-                  style={[
-                    styles.calendarDay,
-                    day === selectedDate.getDate() && styles.calendarDaySelected,
-                    !day && styles.calendarDayEmpty
-                  ]}
-                >
-                  {day && (
-                    <Text style={[
-                      styles.calendarDayText,
-                      day === selectedDate.getDate() && styles.calendarDayTextSelected
-                    ]}>
-                      {day}
-                    </Text>
-                  )}
-                </ForceTouchable>
-              ))}
+              {calendarDays.map((day, index) => {
+                const shiftCount = getShiftCountForDay(day);
+                const isSelected = day === selectedDate.getDate();
+                
+                return (
+                  <View key={index} style={styles.calendarDayContainer}>
+                    <ForceTouchable
+                      onPress={() => { if (day) handleDateSelect(day); }}
+                      disabled={!day}
+                      style={[
+                        styles.calendarDay,
+                        isSelected && styles.calendarDaySelected,
+                        !day && styles.calendarDayEmpty
+                      ]}
+                    >
+                      {day && (
+                        <>
+                          <Text style={[
+                            styles.calendarDayText,
+                            isSelected && styles.calendarDayTextSelected
+                          ]}>
+                            {day}
+                          </Text>
+                          
+                          {/* Shift indicator */}
+                          {shiftCount > 0 && (
+                            <View style={[
+                              styles.shiftIndicator,
+                              { backgroundColor: getIndicatorColor(shiftCount) }
+                            ]}>
+                              <Text style={styles.shiftIndicatorText}>
+                                {shiftCount}
+                              </Text>
+                            </View>
+                          )}
+                        </>
+                      )}
+                    </ForceTouchable>
+                  </View>
+                );
+              })}
             </View>
+            
+            {/* Legend */}
+            {Object.keys(shiftsByDay).some(key => shiftsByDay[key] > 0) && (
+              <View style={styles.legendContainer}>
+                <Text style={styles.legendTitle}>Shift Indicators:</Text>
+                <View style={styles.legendItems}>
+                  <View style={styles.legendItem}>
+                    <View style={[styles.legendDot, { backgroundColor: theme === 'dark' ? '#10B981' : '#059669' }]} />
+                    <Text style={styles.legendText}>1-3 shifts</Text>
+                  </View>
+                  <View style={styles.legendItem}>
+                    <View style={[styles.legendDot, { backgroundColor: theme === 'dark' ? '#F59E0B' : '#D97706' }]} />
+                    <Text style={styles.legendText}>4-6 shifts</Text>
+                  </View>
+                  <View style={styles.legendItem}>
+                    <View style={[styles.legendDot, { backgroundColor: theme === 'dark' ? '#EF4444' : '#DC2626' }]} />
+                    <Text style={styles.legendText}>7+ shifts</Text>
+                  </View>
+                </View>
+              </View>
+            )}
           </View>
         )}
 
-        {/* SINGLE Week Navigation - Remove duplicate */}
+        {/* Week Navigation */}
         <View style={styles.weekNavigation}>
           <ForceTouchable onPress={() => navigateWeek('prev')}>
             <ChevronLeft size={24} color={theme === 'dark' ? '#F9FAFB' : '#374151'} />
@@ -199,8 +300,6 @@ export default function RotaHeader({
         </View>
       </View>
 
-      {/* REMOVED: Duplicate week navigation section was here */}
-
       {/* Create Shift Modal */}
       <CreateShiftModal
         visible={showCreateModal}
@@ -215,26 +314,33 @@ export default function RotaHeader({
 const createStyles = (theme: string) => StyleSheet.create({
   header: {
     padding: 20,
-    paddingTop: 60,
+    paddingTop: 20,
     backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: theme === 'dark' ? '#374151' : '#E5E7EB',
   },
   headerTop: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 16,
+    paddingTop: 40,
   },
-  title: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: theme === 'dark' ? '#F9FAFB' : '#111827',
-  },
-  addButton: {
-    padding: 8,
-    borderRadius: 8,
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: theme === 'dark' ? '#94A3B8' : '#64748B',
+    textAlign: 'center',
+    flex: 1,
+    marginHorizontal: 8,
   },
   calendarToggle: {
     marginBottom: 16,
@@ -274,6 +380,11 @@ const createStyles = (theme: string) => StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
   },
+  calendarDayContainer: {
+    width: '14.28%',
+    aspectRatio: 1,
+    padding: 2,
+  },
   calendarDayHeader: {
     width: '14.28%',
     textAlign: 'center',
@@ -283,12 +394,11 @@ const createStyles = (theme: string) => StyleSheet.create({
     color: theme === 'dark' ? '#9CA3AF' : '#6B7280',
   },
   calendarDay: {
-    width: '14.28%',
-    aspectRatio: 1,
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 8,
-    marginVertical: 2,
+    position: 'relative',
   },
   calendarDayEmpty: {
     backgroundColor: 'transparent',
@@ -304,6 +414,52 @@ const createStyles = (theme: string) => StyleSheet.create({
   calendarDayTextSelected: {
     color: '#FFFFFF',
     fontWeight: '600',
+  },
+  shiftIndicator: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  shiftIndicatorText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  legendContainer: {
+    marginTop: 16,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: theme === 'dark' ? '#4B5563' : '#D1D5DB',
+  },
+  legendTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: theme === 'dark' ? '#9CA3AF' : '#6B7280',
+    marginBottom: 8,
+  },
+  legendItems: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  legendDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  legendText: {
+    fontSize: 11,
+    color: theme === 'dark' ? '#9CA3AF' : '#6B7280',
   },
   weekNavigation: {
     flexDirection: 'row',

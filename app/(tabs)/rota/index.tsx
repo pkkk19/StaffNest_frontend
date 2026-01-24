@@ -1,7 +1,6 @@
-// Update src/app/rota/index.tsx
-import { View, Text, ScrollView, StyleSheet, Alert, ActivityIndicator, RefreshControl, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Alert, ActivityIndicator, RefreshControl, TouchableOpacity } from 'react-native';
 import { Link } from 'expo-router';
-import { Clock, Users, UserCheck, Calendar, Eye, EyeOff, AlertCircle, Edit2, Trash2, MoreVertical, Plus, Filter, Cpu, Copy, MapPin, ChevronDown, ChevronUp, Grid, List, Brain, Trash } from 'lucide-react-native';
+import { Clock, Users, UserCheck, Calendar, Eye, EyeOff, AlertCircle, Edit2, Trash2, MoreVertical, Plus, Filter, Cpu, Copy, MapPin, ChevronDown, ChevronUp, Grid, List, Brain, Trash, BarChart3, UserSquare } from 'lucide-react-native';
 import ForceTouchable from '@/components/ForceTouchable';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -14,9 +13,22 @@ import FilterModal from '@/components/rota/FilterModal';
 import AutoSchedulingModal from '@/components/rota/AutoSchedulingModal';
 import BulkDeleteModal from '@/components/rota/BulkDeleteModal';
 import { useRotaData } from '@/hooks/useRotaData';
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Shift } from '@/app/types/rota.types';
-import ScheduleViewSwitcher, { ScheduleViewMode } from '@/components/rota/ScheduleViewSwitcher';
+import { useOpenShifts } from '@/hooks/useOpenShifts';
+
+// Define the view modes - removed 'calendar'
+export type ScheduleViewMode = 'list' | 'user-grid';
+
+// Helper function to get week start date (Monday)
+const getWeekStartDate = (date: Date) => {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Monday as first day
+  d.setDate(diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+};
 
 export default function RotaScreen() {
   const { theme } = useTheme();
@@ -30,7 +42,8 @@ export default function RotaScreen() {
   const [showShiftActions, setShowShiftActions] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [createModalDate, setCreateModalDate] = useState<Date>(new Date());
-  const [currentView, setCurrentView] = useState<ScheduleViewMode>('calendar');
+  // Set default view to 'user-grid'
+  const [currentView, setCurrentView] = useState<ScheduleViewMode>('user-grid');
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [showAutoModal, setShowAutoModal] = useState(false);
   const [filters, setFilters] = useState<any>({});
@@ -39,12 +52,25 @@ export default function RotaScreen() {
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
   const [showAdminActions, setShowAdminActions] = useState(false);
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
+
+  const {openShifts: availableOpenShifts} = useOpenShifts();
+  const openShiftsCount = availableOpenShifts.length;
   
   const isAdmin = user?.role === 'admin';
   const shouldShowAllShifts = isAdmin || viewMode === 'all';
   
+  // Use refs to track previous values and prevent infinite loops
+  const prevSelectedDate = useRef<Date>(selectedDate);
+  const prevDateFilter = useRef<string>(dateFilter);
+  
+  // Calculate week start and end dates based on selectedDate
+  const weekStartDate = getWeekStartDate(selectedDate);
+  const weekEndDate = new Date(weekStartDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+  
+  // Always use the full week range for data fetching, regardless of dateFilter
   const { shifts, loading, error, refetch, updateShift, deleteShift, clockIn, clockOut, deleteShiftsBulk } = useRotaData({
-    start_date: selectedDate,
+    start_date: weekStartDate,
+    end_date: weekEndDate,
     ...(shouldShowAllShifts ? {} : { user_id: user?._id }),
   });
 
@@ -87,7 +113,7 @@ export default function RotaScreen() {
       filtered = filtered.filter(shift => shift.type === filters.shift_type);
     }
 
-    // Apply date filtering
+    // Apply date filtering - ONLY for display, not for data fetching
     if (dateFilter !== 'all') {
       filtered = filtered.filter(shift => {
         try {
@@ -99,14 +125,16 @@ export default function RotaScreen() {
             return shiftDate.toDateString() === today.toDateString();
           }
           if (dateFilter === 'week') {
-            const weekEnd = new Date(today);
-            weekEnd.setDate(today.getDate() + 7);
-            return shiftDate >= today && shiftDate <= weekEnd;
+            const weekStart = getWeekStartDate(today);
+            const weekEnd = new Date(weekStart);
+            weekEnd.setDate(weekStart.getDate() + 7);
+            return shiftDate >= weekStart && shiftDate <= weekEnd;
           }
           if (dateFilter === 'month') {
-            const monthEnd = new Date(today);
-            monthEnd.setMonth(today.getMonth() + 1);
-            return shiftDate >= today && shiftDate <= monthEnd;
+            const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+            const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+            monthEnd.setHours(23, 59, 59, 999);
+            return shiftDate >= monthStart && shiftDate <= monthEnd;
           }
           return true;
         } catch (error) {
@@ -117,6 +145,19 @@ export default function RotaScreen() {
 
     return filtered;
   }, [shifts, viewMode, statusFilter, filters, isAdmin, user?._id, dateFilter]);
+
+  // Get week dates for display
+  const getWeekDatesForDisplay = () => {
+    const dates = [];
+    const monday = getWeekStartDate(selectedDate);
+    
+    for (let i = 0; i < 7; i++) {
+      const date = new Date(monday);
+      date.setDate(monday.getDate() + i);
+      dates.push(date);
+    }
+    return dates;
+  };
 
   const handleAutoScheduleGenerated = (schedule: any) => {
     Alert.alert('AI Schedule Generated', schedule.message);
@@ -361,8 +402,7 @@ export default function RotaScreen() {
     const weekNo = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
     return weekNo;
   };
-
-  const openShiftsCount = shifts.filter(shift => shift.type === 'open').length;
+  
   const myShiftsCount = shifts.filter(shift => shift.user_id?._id === user?._id).length;
 
   if (error) {
@@ -393,22 +433,19 @@ export default function RotaScreen() {
         onShiftCreated={handleShiftCreated}
       />
       
-      {/* View Dropdown (Calendar/List/Matrix) */}
+      {/* View Dropdown (User Grid/List View) */}
       <View style={styles.dropdownContainer}>
         <TouchableOpacity
           style={styles.viewDropdownButton}
           onPress={() => setShowViewDropdown(!showViewDropdown)}
         >
-          {currentView === 'calendar' ? (
-            <Calendar size={16} color={theme === 'dark' ? '#9CA3AF' : '#6B7280'} />
-          ) : currentView === 'list' ? (
-            <List size={16} color={theme === 'dark' ? '#9CA3AF' : '#6B7280'} />
+          {currentView === 'user-grid' ? (
+            <Users size={16} color={theme === 'dark' ? '#9CA3AF' : '#6B7280'} />
           ) : (
-            <Grid size={16} color={theme === 'dark' ? '#9CA3AF' : '#6B7280'} />
+            <List size={16} color={theme === 'dark' ? '#9CA3AF' : '#6B7280'} />
           )}
           <Text style={styles.viewDropdownButtonText}>
-            {currentView === 'calendar' ? 'Calendar View' : 
-             currentView === 'list' ? 'List View' : 'Matrix View'}
+            {currentView === 'user-grid' ? 'User View' : 'List View'}
           </Text>
           {showViewDropdown ? (
             <ChevronUp size={16} color={theme === 'dark' ? '#9CA3AF' : '#6B7280'} />
@@ -417,19 +454,19 @@ export default function RotaScreen() {
           )}
         </TouchableOpacity>
 
-        {/* View Dropdown Menu */}
+        {/* View Dropdown Menu - Removed Calendar View */}
         {showViewDropdown && (
           <View style={styles.viewDropdownMenu}>
             <TouchableOpacity
-              style={[styles.viewDropdownMenuItem, currentView === 'calendar' && styles.viewDropdownMenuItemActive]}
+              style={[styles.viewDropdownMenuItem, currentView === 'user-grid' && styles.viewDropdownMenuItemActive]}
               onPress={() => {
-                setCurrentView('calendar');
+                setCurrentView('user-grid');
                 setShowViewDropdown(false);
               }}
             >
-              <Calendar size={16} color={currentView === 'calendar' ? '#3B82F6' : (theme === 'dark' ? '#9CA3AF' : '#6B7280')} />
-              <Text style={[styles.viewDropdownMenuText, currentView === 'calendar' && styles.viewDropdownMenuTextActive]}>
-                Calendar View
+              <Users size={16} color={currentView === 'user-grid' ? '#3B82F6' : (theme === 'dark' ? '#9CA3AF' : '#6B7280')} />
+              <Text style={[styles.viewDropdownMenuText, currentView === 'user-grid' && styles.viewDropdownMenuTextActive]}>
+                User View
               </Text>
             </TouchableOpacity>
             
@@ -443,19 +480,6 @@ export default function RotaScreen() {
               <List size={16} color={currentView === 'list' ? '#3B82F6' : (theme === 'dark' ? '#9CA3AF' : '#6B7280')} />
               <Text style={[styles.viewDropdownMenuText, currentView === 'list' && styles.viewDropdownMenuTextActive]}>
                 List View
-              </Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity
-              style={[styles.viewDropdownMenuItem, currentView === 'matrix' && styles.viewDropdownMenuItemActive]}
-              onPress={() => {
-                setCurrentView('matrix');
-                setShowViewDropdown(false);
-              }}
-            >
-              <Grid size={16} color={currentView === 'matrix' ? '#3B82F6' : (theme === 'dark' ? '#9CA3AF' : '#6B7280')} />
-              <Text style={[styles.viewDropdownMenuText, currentView === 'matrix' && styles.viewDropdownMenuTextActive]}>
-                Matrix View
               </Text>
             </TouchableOpacity>
           </View>
@@ -589,7 +613,7 @@ export default function RotaScreen() {
           </View>
         ) : filteredShifts.length === 0 ? (
           <View style={styles.emptyState}>
-            <Calendar size={64} color={theme === 'dark' ? '#9CA3AF' : '#6B7280'} />
+            <Users size={64} color={theme === 'dark' ? '#9CA3AF' : '#6B7280'} />
             <Text style={styles.emptyTitle}>
               {dateFilter !== 'all' 
                 ? `No shifts for ${dateFilter}`
@@ -640,7 +664,11 @@ export default function RotaScreen() {
                   {shouldShowAllShifts ? 'Weekly Schedule' : 'My Schedule'}
                 </Text>
                 <Text style={styles.sectionSubtitle}>
-                  {filteredShifts.length} shift{filteredShifts.length !== 1 ? 's' : ''}
+                  Week of {getWeekStartDate(selectedDate).toLocaleDateString('en-US', { 
+                    month: 'short', 
+                    day: 'numeric',
+                    year: 'numeric'
+                  })}
                 </Text>
               </View>
               
@@ -800,48 +828,6 @@ export default function RotaScreen() {
                     <Text style={[styles.aiActionButtonText, styles.fillOpenButtonText]}>Fill Open Shifts</Text>
                   </ForceTouchable>
                 </View>
-
-                {/* Clear Shifts Section */}
-                <View style={styles.clearSection}>
-                  <Text style={styles.clearSectionTitle}>Clear Shifts</Text>
-                  <Text style={styles.clearSectionDescription}>
-                    Warning: This will permanently delete shifts
-                  </Text>
-                  <View style={styles.clearButtonsGrid}>
-                    <ForceTouchable 
-                      style={[styles.clearButton, styles.clearTodayButton]}
-                      onPress={() => handleClearShifts('today')}
-                    >
-                      <Trash size={16} color="#EF4444" />
-                      <Text style={styles.clearButtonText}>Clear Today</Text>
-                    </ForceTouchable>
-                    
-                    <ForceTouchable 
-                      style={[styles.clearButton, styles.clearWeekButton]}
-                      onPress={() => handleClearShifts('week')}
-                    >
-                      <Trash size={16} color="#EF4444" />
-                      <Text style={styles.clearButtonText}>Clear This Week</Text>
-                    </ForceTouchable>
-                    
-                    <ForceTouchable 
-                      style={[styles.clearButton, styles.clearMonthButton]}
-                      onPress={() => handleClearShifts('month')}
-                    >
-                      <Trash size={16} color="#EF4444" />
-                      <Text style={styles.clearButtonText}>Clear This Month</Text>
-                    </ForceTouchable>
-                  </View>
-                </View>
-
-                {/* Bulk Delete Button */}
-                <ForceTouchable 
-                  style={styles.bulkDeleteButton}
-                  onPress={() => setShowBulkDeleteModal(true)}
-                >
-                  <Trash2 size={20} color="#FFFFFF" />
-                  <Text style={styles.bulkDeleteButtonText}>Advanced Bulk Delete</Text>
-                </ForceTouchable>
               </View>
             )}
           </>
@@ -857,7 +843,7 @@ export default function RotaScreen() {
         </TouchableOpacity>
       )}
 
-      {/* Admin Actions Modal */}
+      {/* Admin Actions Modal - UPDATED: Removed Clear Shifts, kept Bulk Delete */}
       {showAdminActions && (
         <View style={styles.adminActionsOverlay}>
           <View style={styles.adminActionsModal}>
@@ -896,38 +882,6 @@ export default function RotaScreen() {
               <Text style={[styles.adminActionButtonText, { color: '#EF4444' }]}>
                 Bulk Delete Shifts
               </Text>
-            </ForceTouchable>
-            
-            <ForceTouchable 
-              style={styles.adminActionButton}
-              onPress={() => {
-                setShowAdminActions(false);
-                Alert.alert(
-                  'Clear Shifts',
-                  'Select period to clear:',
-                  [
-                    { text: 'Cancel', style: 'cancel' },
-                    { 
-                      text: 'Today', 
-                      style: 'destructive',
-                      onPress: () => handleClearShifts('today')
-                    },
-                    { 
-                      text: 'This Week', 
-                      style: 'destructive',
-                      onPress: () => handleClearShifts('week')
-                    },
-                    { 
-                      text: 'This Month', 
-                      style: 'destructive',
-                      onPress: () => handleClearShifts('month')
-                    },
-                  ]
-                );
-              }}
-            >
-              <Trash size={20} color="#EF4444" />
-              <Text style={[styles.adminActionButtonText, { color: '#EF4444' }]}>Clear Shifts</Text>
             </ForceTouchable>
             
             <ForceTouchable 
@@ -1357,7 +1311,7 @@ const createStyles = (theme: string) => StyleSheet.create({
     lineHeight: 20,
   },
   aiActionsGrid: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     gap: 12,
     marginBottom: 24,
   },

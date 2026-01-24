@@ -1,6 +1,6 @@
 // app/dashboard.tsx
 import { View, Text, ScrollView, StyleSheet, Platform, ActivityIndicator, Image, StatusBar, TouchableOpacity } from 'react-native';
-import { Bell, Calendar, Clock, FileText, Users, MessageSquare, Mail, User } from 'lucide-react-native';
+import { Bell, Calendar, Clock, FileText, Users, MessageSquare, Mail, User, ChevronRight } from 'lucide-react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -11,6 +11,7 @@ import { useState, useEffect } from 'react';
 import { shiftsAPI, companiesAPI } from '@/services/api';
 import AISearchBar from '@/components/AI/AISearchBar';
 import StoriesCarousel from '@/components/Stories/StoriesCarousel';
+import api from '@/services/api';
 
 // Define the Company type based on your API response
 type Company = {
@@ -25,6 +26,17 @@ type Company = {
   updated_at?: string;
 };
 
+// Define Notification type
+type Notification = {
+  id: string;
+  title: string;
+  body: string;
+  type: string;
+  read: boolean;
+  createdAt: string;
+  data?: any;
+};
+
 export default function Dashboard() {
   const { theme } = useTheme();
   const { t } = useLanguage();
@@ -37,6 +49,8 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [companyLoading, setCompanyLoading] = useState(true);
   const [companyError, setCompanyError] = useState<string | null>(null);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
 
   const styles = createStyles(theme);
 
@@ -44,6 +58,7 @@ export default function Dashboard() {
     if (user && !authLoading) {
       fetchDashboardData();
       fetchCompanyData();
+      fetchRecentNotifications();
     }
   }, [user, authLoading]);
 
@@ -71,12 +86,8 @@ export default function Dashboard() {
       setCompanyLoading(true);
       setCompanyError(null);
       
-      console.log('Fetching company data for user:', user?._id);
-      
       // First try to get the user's company
       const response = await companiesAPI.getCompany(user!.company_id?.toString() || '');
-      console.log('Company API response:', response);
-      console.log('Company data:', response.data);
       
       if (response.data) {
         setCompany(response.data);
@@ -85,9 +96,6 @@ export default function Dashboard() {
       }
       
     } catch (error: any) {
-      console.error('Failed to fetch company data:', error);
-      console.error('Error details:', error.response?.data || error.message);
-      
       // Check if it's a 404 error (company not found)
       if (error.response?.status === 404) {
         setCompanyError('No company associated with your account');
@@ -98,6 +106,48 @@ export default function Dashboard() {
       setCompany(null);
     } finally {
       setCompanyLoading(false);
+    }
+  };
+
+  const fetchRecentNotifications = async () => {
+    try {
+      setNotificationsLoading(true);
+      // Fetch actual notifications from API
+      const response = await api.get('/notifications/history', {
+        params: { limit: 6, page: 1 }
+      });
+      
+      if (response.data?.notifications) {
+        setNotifications(response.data.notifications);
+      }
+      
+    } catch (error) {
+      console.error('Failed to fetch notifications:', error);
+      // Optional: Show error state or fallback to empty array
+      setNotifications([]);
+    } finally {
+      setNotificationsLoading(false);
+    }
+  };
+
+  const handleNotificationPress = async (notification: Notification) => {
+    try {
+      // Mark as read
+      if (!notification.read) {
+        await api.post(`/notifications/${notification.id}/read`);
+        
+        // Update local state
+        setNotifications(prev => prev.map(n => 
+          n.id === notification.id ? { ...n, read: true } : n
+        ));
+      }
+      
+      // Navigate based on notification data
+      if (notification.data?.deepLink) {
+        router.push(notification.data.deepLink);
+      }
+    } catch (error) {
+      console.error('Failed to handle notification press:', error);
     }
   };
 
@@ -127,11 +177,42 @@ export default function Dashboard() {
     ] : []),
   ];
 
-  const notifications = [
-    { id: 1, title: t('shiftReminder'), message: t('shiftTomorrow'), time: '2h ago', type: 'info' },
-    { id: 2, title: t('holidayApproved'), message: t('holidayApprovedMsg'), time: '1d ago', type: 'success' },
-    { id: 3, title: t('rotaUpdated'), message: t('rotaUpdatedMsg'), time: '2d ago', type: 'warning' },
-  ];
+  // Helper function for notification colors
+  const getNotificationColor = (type: string) => {
+    switch (type) {
+      case 'shift_reminder':
+        return '#2563EB';
+      case 'new_message':
+        return '#8B5CF6';
+      case 'new_payslip':
+        return '#F59E0B';
+      case 'holiday_approved':
+        return '#10B981';
+      case 'rota_updated':
+        return '#EC4899';
+      default:
+        return '#6B7280';
+    }
+  };
+
+  const getNotificationIcon = (type: string) => {
+    switch (type) {
+      case 'shift_reminder':
+        return Clock;
+      case 'new_message':
+        return MessageSquare;
+      case 'new_payslip':
+        return FileText;
+      case 'holiday_approved':
+        return Calendar;
+      case 'rota_updated':
+        return Calendar;
+      default:
+        return Bell;
+    }
+  };
+
+  const displayedNotifications = notifications.slice(0, 5);
 
   if (authLoading || loading) {
     return (
@@ -222,32 +303,109 @@ export default function Dashboard() {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t('recentNotifications')}</Text>
-          {notifications.map(notification => (
-            <View key={notification.id} style={[
-              styles.notificationItem,
-              { borderLeftColor: getNotificationColor(notification.type) }
-            ]}>
-              <View style={styles.notificationHeader}>
-                <Text style={styles.notificationTitle}>{notification.title}</Text>
-                <Text style={styles.notificationTime}>{notification.time}</Text>
-              </View>
-              <Text style={styles.notificationMessage}>{notification.message}</Text>
-            </View>
-          ))}
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>{t('recentNotifications')}</Text>
+            {notifications.length > 0 && (
+              <TouchableOpacity 
+                style={styles.viewAllButton}
+                onPress={() => router.push('/notifications')}
+              >
+                <Text style={styles.viewAllText}>View All</Text>
+                <ChevronRight size={16} color={theme === 'dark' ? '#9CA3AF' : '#6B7280'} />
+              </TouchableOpacity>
+            )}
+          </View>
+          
+          {notificationsLoading ? (
+            <ActivityIndicator size="small" color="#2563EB" />
+          ) : (
+            <>
+              {displayedNotifications.map(notification => {
+                const Icon = getNotificationIcon(notification.type);
+                const color = getNotificationColor(notification.type);
+                
+                return (
+                  <TouchableOpacity
+                    key={notification.id}
+                    style={[
+                      styles.notificationItem,
+                      { 
+                        borderLeftColor: color,
+                        backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF',
+                        opacity: notification.read ? 0.7 : 1
+                      }
+                    ]}
+                    onPress={() => handleNotificationPress(notification)}
+                  >
+                    <View style={styles.notificationHeader}>
+                      <View style={styles.notificationTitleContainer}>
+                        <Icon size={16} color={color} style={styles.notificationIcon} />
+                        <Text style={[
+                          styles.notificationTitle,
+                          !notification.read && styles.unreadNotification
+                        ]}>
+                          {notification.title}
+                        </Text>
+                      </View>
+                      <Text style={styles.notificationTime}>
+                        {formatTimeAgo(notification.createdAt)}
+                      </Text>
+                    </View>
+                    <Text style={styles.notificationMessage}>{notification.body}</Text>
+                    {!notification.read && (
+                      <View style={styles.unreadDot} />
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+              
+              {notifications.length > 5 && (
+                <TouchableOpacity
+                  style={styles.viewMoreButton}
+                  onPress={() => router.push('/notifications')}
+                >
+                  <Text style={styles.viewMoreText}>
+                    View {notifications.length - 5} more notifications
+                  </Text>
+                  <ChevronRight size={16} color={theme === 'dark' ? '#9CA3AF' : '#6B7280'} />
+                </TouchableOpacity>
+              )}
+              
+              {notifications.length === 0 && (
+                <View style={styles.emptyState}>
+                  <Bell size={48} color={theme === 'dark' ? '#4B5563' : '#9CA3AF'} />
+                  <Text style={styles.emptyStateText}>
+                    No notifications yet
+                  </Text>
+                </View>
+              )}
+            </>
+          )}
         </View>
       </ScrollView>
     </>
   );
 }
 
-// Helper function for notification colors
-function getNotificationColor(type: string) {
-  switch (type) {
-    case 'success': return '#10B981';
-    case 'warning': return '#F59E0B';
-    case 'error': return '#EF4444';
-    default: return '#2563EB';
+// Helper function to format time ago
+function formatTimeAgo(dateString: string): string {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffMins < 1) {
+    return 'Just now';
+  } else if (diffMins < 60) {
+    return `${diffMins}m ago`;
+  } else if (diffHours < 24) {
+    return `${diffHours}h ago`;
+  } else if (diffDays < 7) {
+    return `${diffDays}d ago`;
+  } else {
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   }
 }
 
@@ -331,11 +489,26 @@ function createStyles(theme: string) {
       paddingHorizontal: 20,
       marginBottom: 24,
     },
+    sectionHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 16,
+    },
     sectionTitle: {
       fontSize: 18,
       fontWeight: '600',
       color: isDark ? '#F9FAFB' : '#111827',
       marginBottom: 16,
+    },
+    viewAllButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+    },
+    viewAllText: {
+      fontSize: 14,
+      color: isDark ? '#9CA3AF' : '#6B7280',
     },
     actionsGrid: {
       flexDirection: 'row',
@@ -370,6 +543,7 @@ function createStyles(theme: string) {
       borderRadius: 12,
       marginBottom: 12,
       borderLeftWidth: 4,
+      position: 'relative',
     },
     notificationHeader: {
       flexDirection: 'row',
@@ -377,10 +551,23 @@ function createStyles(theme: string) {
       alignItems: 'center',
       marginBottom: 8,
     },
+    notificationTitleContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      flex: 1,
+    },
+    notificationIcon: {
+      marginRight: 4,
+    },
     notificationTitle: {
       fontSize: 14,
       fontWeight: '600',
       color: isDark ? '#F9FAFB' : '#111827',
+      flex: 1,
+    },
+    unreadNotification: {
+      fontWeight: '700',
     },
     notificationTime: {
       fontSize: 12,
@@ -389,6 +576,42 @@ function createStyles(theme: string) {
     notificationMessage: {
       fontSize: 14,
       color: isDark ? '#D1D5DB' : '#4B5563',
+    },
+    unreadDot: {
+      position: 'absolute',
+      top: 16,
+      right: 16,
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: '#EF4444',
+    },
+    viewMoreButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 12,
+      backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
+      borderRadius: 12,
+      marginTop: 8,
+      gap: 8,
+    },
+    viewMoreText: {
+      fontSize: 14,
+      fontWeight: '500',
+      color: isDark ? '#9CA3AF' : '#6B7280',
+    },
+    emptyState: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 40,
+      backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
+      borderRadius: 12,
+    },
+    emptyStateText: {
+      fontSize: 16,
+      color: isDark ? '#9CA3AF' : '#6B7280',
+      marginTop: 12,
     },
   });
 }

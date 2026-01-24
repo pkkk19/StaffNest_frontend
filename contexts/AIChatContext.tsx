@@ -1,10 +1,31 @@
 // File: contexts/AIChatContext.tsx
-import React, { createContext, useContext, useState, useRef, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useRef, ReactNode, useCallback, useEffect } from 'react';
 import { deepseekService, ChatMessage } from '@/services/deepseekService';
 import api from '@/services/api';
+import { Alert } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// Define a more complete ChatMessage interface
+interface AIChatMessage extends Omit<ChatMessage, 'metadata'> {
+  metadata?: {
+    type?: 'general' | 'app_command' | 'data_query' | 'error';
+    command?: string;
+    dataSource?: string;
+    dataFetched?: boolean;
+    error?: string;
+    attachments?: any[];
+  };
+}
+
+interface AppCommand {
+  name: string;
+  description: string;
+  icon: string;
+  endpoint: string;
+}
 
 interface AIChatContextType {
-  messages: ChatMessage[];
+  messages: AIChatMessage[];
   isLoading: boolean;
   error: string | null;
   isStreaming: boolean;
@@ -13,7 +34,11 @@ interface AIChatContextType {
   setModel: (model: string) => void;
   currentModel: string;
   availableModels: string[];
-  // Enhanced capabilities
+  appCommands: AppCommand[];
+  isTyping: boolean;
+  hasMoreHistory: boolean;
+  loadMoreHistory: () => Promise<void>;
+  fetchAppCommands: () => Promise<void>;
   fetchData: (endpoint: string, params?: any) => Promise<any>;
   performAction: (action: string, data?: any) => Promise<any>;
   availableEndpoints: Record<string, any>;
@@ -124,28 +149,91 @@ const AVAILABLE_ENDPOINTS = {
     path: '/notifications/history',
     methods: ['GET'],
     description: 'Get notification history'
+  },
+  
+  // Time Off
+  timeOff: {
+    path: '/time-off',
+    methods: ['GET', 'POST'],
+    description: 'Manage time off requests'
+  },
+  myLeaves: {
+    path: '/time-off/my-leaves',
+    methods: ['GET'],
+    description: 'Get user\'s own leave requests'
   }
 };
 
+// Define app commands for quick access
+const APP_COMMANDS: AppCommand[] = [
+  {
+    name: 'get_shifts',
+    description: 'Show my upcoming shifts',
+    icon: 'calendar',
+    endpoint: 'myShifts'
+  },
+  {
+    name: 'get_payslips',
+    description: 'Show my recent payslips',
+    icon: 'dollar-sign',
+    endpoint: 'myPayslips'
+  },
+  {
+    name: 'get_timeoff_requests',
+    description: 'Check my time off status',
+    icon: 'clock',
+    endpoint: 'myLeaves'
+  },
+  {
+    name: 'get_company_policies',
+    description: 'View company policies',
+    icon: 'book-open',
+    endpoint: 'company'
+  },
+  {
+    name: 'get_staff_directory',
+    description: 'Browse staff directory',
+    icon: 'users',
+    endpoint: 'staff'
+  },
+  {
+    name: 'request_timeoff',
+    description: 'Submit time off request',
+    icon: 'calendar',
+    endpoint: 'timeOff'
+  }
+];
+
 export function AIChatProvider({ children }: { children: ReactNode }) {
-  const [messages, setMessages] = useState<ChatMessage[]>([
+  const [messages, setMessages] = useState<AIChatMessage[]>([
     {
       role: 'assistant',
       content: 'Hello! I\'m your HourWize AI assistant. I can help you with:\n• Shift scheduling and management\n• Payroll and payslip queries\n• Staff information and management\n• Company policies and locations\n• And much more!\n\nWhat would you like to know or do today?',
       timestamp: new Date(),
+      metadata: {
+        type: 'general'
+      }
     },
   ]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isTyping, setIsTyping] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [currentModel, setCurrentModel] = useState('deepseek-chat');
   const [availableModels, setAvailableModels] = useState<string[]>([
     'deepseek-chat',
     'deepseek-coder',
   ]);
+  const [appCommands, setAppCommands] = useState<AppCommand[]>(APP_COMMANDS);
+  const [hasMoreHistory, setHasMoreHistory] = useState(true);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [totalMessages, setTotalMessages] = useState(0);
+
+  const apiClient = api;
 
   // System prompt that includes available endpoints
-  const systemPrompt = `You are HourWize AI, an intelligent assistant for the HourWize staff management platform. 
+  const getSystemPrompt = (): string => {
+    return `You are HourWize AI, an intelligent assistant for the HourWize staff management platform. 
 You have access to the following backend endpoints:
 
 ${Object.entries(AVAILABLE_ENDPOINTS).map(([key, endpoint]) => 
@@ -165,8 +253,9 @@ Example responses:
 - "I'll generate a payslip summary for you..." (then fetch from /payslips/my-payslips)
 
 Current date: ${new Date().toLocaleDateString()}`;
+  };
 
-  const fetchData = async (endpointKey: string, params?: any): Promise<any> => {
+  const fetchData = useCallback(async (endpointKey: string, params?: any): Promise<any> => {
     try {
       const endpoint = AVAILABLE_ENDPOINTS[endpointKey as keyof typeof AVAILABLE_ENDPOINTS];
       if (!endpoint) {
@@ -175,14 +264,19 @@ Current date: ${new Date().toLocaleDateString()}`;
 
       let response;
       
-      if (endpointKey === 'shifts' && params) {
-        response = await api.get('/shifts', { params });
-      } else if (endpointKey === 'payslips' && params) {
-        response = await api.get('/payslips', { params });
-      } else if (endpointKey === 'users' && params) {
-        response = await api.get('/users', { params });
+      // Handle specific endpoint patterns
+      if (endpointKey === 'myShifts') {
+        response = await apiClient.get('/shifts/my-shifts', { params });
+      } else if (endpointKey === 'myPayslips') {
+        response = await apiClient.get('/payslips/my-payslips', { params });
+      } else if (endpointKey === 'myLeaves') {
+        response = await apiClient.get('/time-off/my-leaves', { params });
+      } else if (endpointKey === 'staff') {
+        response = await apiClient.get('/users/staff', { params });
+      } else if (endpointKey === 'company') {
+        response = await apiClient.get('/companies/my', { params });
       } else {
-        response = await api.get(endpoint.path);
+        response = await apiClient.get(endpoint.path, { params });
       }
 
       return response.data;
@@ -190,9 +284,9 @@ Current date: ${new Date().toLocaleDateString()}`;
       console.error(`Error fetching from ${endpointKey}:`, err);
       throw new Error(`Failed to fetch ${endpointKey}: ${err.message}`);
     }
-  };
+  }, [apiClient]);
 
-  const performAction = async (action: string, data?: any): Promise<any> => {
+  const performAction = useCallback(async (action: string, data?: any): Promise<any> => {
     try {
       const endpoint = AVAILABLE_ENDPOINTS[action as keyof typeof AVAILABLE_ENDPOINTS];
       if (!endpoint) {
@@ -203,22 +297,25 @@ Current date: ${new Date().toLocaleDateString()}`;
       
       switch (action) {
         case 'shifts':
-          response = await api.post('/shifts', data);
+          response = await apiClient.post('/shifts', data);
           break;
         case 'shiftRequests':
-          response = await api.post('/shifts/requests', data);
+          response = await apiClient.post('/shifts/requests', data);
           break;
         case 'generatePayslip':
-          response = await api.post('/payslips/generate', data);
+          response = await apiClient.post('/payslips/generate', data);
           break;
         case 'users':
-          response = await api.post('/users', data);
+          response = await apiClient.post('/users', data);
           break;
         case 'companyLocations':
-          response = await api.post('/companies/locations', data);
+          response = await apiClient.post('/companies/locations', data);
           break;
         case 'roles':
-          response = await api.post('/roles', data);
+          response = await apiClient.post('/roles', data);
+          break;
+        case 'timeOff':
+          response = await apiClient.post('/time-off/request', data);
           break;
         default:
           throw new Error(`Action ${action} not implemented`);
@@ -229,154 +326,338 @@ Current date: ${new Date().toLocaleDateString()}`;
       console.error(`Error performing action ${action}:`, err);
       throw new Error(`Failed to perform ${action}: ${err.message}`);
     }
-  };
+  }, [apiClient]);
 
-  const sendMessage = async (content: string, attachments: any[] = []) => {
+  const detectAppCommand = useCallback((message: string): {command: AppCommand; endpoint: string} | null => {
+    const lowerMessage = message.toLowerCase().trim();
+    
+    for (const command of APP_COMMANDS) {
+      const patterns = [
+        `show me my ${command.name.replace('get_', '')}`,
+        `get my ${command.name.replace('get_', '')}`,
+        `view my ${command.name.replace('get_', '')}`,
+        `check ${command.name.replace('get_', '')}`,
+        `${command.name.replace('_', ' ')}`,
+        `my ${command.name.replace('get_', '')}`,
+        `what are my ${command.name.replace('get_', '')}`,
+        `when are my ${command.name.replace('get_', '')}`,
+      ];
+      
+      for (const pattern of patterns) {
+        if (lowerMessage.includes(pattern)) {
+          return { command, endpoint: command.endpoint };
+        }
+      }
+    }
+    
+    return null;
+  }, []);
+
+  const extractParameters = useCallback((message: string): Record<string, string> => {
+    const params: Record<string, string> = {};
+    
+    // Extract common parameters
+    const patterns = [
+      { regex: /limit\s*[:=]?\s*(\d+)/i, key: 'limit' },
+      { regex: /month\s*[:=]?\s*(\w+)/i, key: 'month' },
+      { regex: /year\s*[:=]?\s*(\d{4})/i, key: 'year' },
+      { regex: /status\s*[:=]?\s*(\w+)/i, key: 'status' },
+      { regex: /start\s*date\s*[:=]?\s*([\d-]+)/i, key: 'start_date' },
+      { regex: /end\s*date\s*[:=]?\s*([\d-]+)/i, key: 'end_date' },
+    ];
+    
+    for (const pattern of patterns) {
+      const match = message.match(pattern.regex);
+      if (match) {
+        params[pattern.key] = match[1].trim();
+      }
+    }
+    
+    return params;
+  }, []);
+
+  const processAIResponse = useCallback(async (userQuery: string): Promise<string> => {
+    try {
+      const detectedCommand = detectAppCommand(userQuery);
+      
+      if (detectedCommand) {
+        const params = extractParameters(userQuery);
+        
+        try {
+          const fetchedData = await fetchData(detectedCommand.endpoint, params);
+          
+          // Format the data for the AI
+          let dataSummary = '';
+          
+          switch (detectedCommand.endpoint) {
+            case 'myShifts':
+              if (fetchedData && fetchedData.length > 0) {
+                dataSummary = `I found ${fetchedData.length} upcoming shifts:\n`;
+                fetchedData.forEach((shift: any, index: number) => {
+                  const start = new Date(shift.start_time);
+                  const end = new Date(shift.end_time);
+                  dataSummary += `${index + 1}. ${shift.title || 'Shift'} on ${start.toLocaleDateString()} from ${start.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} to ${end.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} (${shift.status})\n`;
+                });
+              } else {
+                dataSummary = 'You have no upcoming shifts scheduled.';
+              }
+              break;
+              
+            case 'myPayslips':
+              if (fetchedData && fetchedData.length > 0) {
+                dataSummary = `I found ${fetchedData.length} recent payslips:\n`;
+                fetchedData.slice(0, 5).forEach((payslip: any, index: number) => {
+                  const amount = payslip.net_pay || payslip.total_earnings || 0;
+                  dataSummary += `${index + 1}. ${payslip.payslip_number || 'Payslip'} - £${amount.toFixed(2)} for period ${payslip.pay_period_start} to ${payslip.pay_period_end} (${payslip.status})\n`;
+                });
+              } else {
+                dataSummary = 'No payslips found for your account.';
+              }
+              break;
+              
+            case 'myLeaves':
+              if (fetchedData && fetchedData.length > 0) {
+                dataSummary = `I found ${fetchedData.length} leave requests:\n`;
+                fetchedData.forEach((leave: any, index: number) => {
+                  dataSummary += `${index + 1}. ${leave.leave_type} from ${leave.start_date} to ${leave.end_date} (${leave.status})\n`;
+                });
+              } else {
+                dataSummary = 'No leave requests found for your account.';
+              }
+              break;
+              
+            case 'staff':
+              if (fetchedData && fetchedData.length > 0) {
+                dataSummary = `Staff directory has ${fetchedData.length} members:\n`;
+                fetchedData.slice(0, 10).forEach((staff: any, index: number) => {
+                  dataSummary += `${index + 1}. ${staff.first_name} ${staff.last_name} - ${staff.position || 'Staff Member'} (${staff.email})\n`;
+                });
+              } else {
+                dataSummary = 'No staff members found in the directory.';
+              }
+              break;
+              
+            case 'company':
+              if (fetchedData) {
+                dataSummary = `Company: ${fetchedData.name || 'HourWize Company'}\n`;
+                dataSummary += `Address: ${fetchedData.address || 'Not specified'}\n`;
+                if (fetchedData.phone_number) {
+                  dataSummary += `Phone: ${fetchedData.phone_number}\n`;
+                }
+              } else {
+                dataSummary = 'Company information not available.';
+              }
+              break;
+          }
+          
+          // Save fetched data to AsyncStorage for context
+          await AsyncStorage.setItem('last_fetched_data', JSON.stringify({
+            command: detectedCommand.command.name,
+            data: fetchedData,
+            timestamp: new Date().toISOString()
+          }));
+          
+          return dataSummary;
+          
+        } catch (fetchError) {
+          console.error('Error fetching data for AI:', fetchError);
+          return `I tried to fetch ${detectedCommand.command.description.toLowerCase()}, but encountered an error. Please try again later or contact support.`;
+        }
+      }
+      
+      return ''; // No data to append
+      
+    } catch (error) {
+      console.error('Error processing AI response:', error);
+      return '';
+    }
+  }, [detectAppCommand, extractParameters, fetchData]);
+
+  const sendMessage = useCallback(async (content: string, attachments: any[] = []) => {
     if (!content.trim() && (!attachments || attachments.length === 0)) {
       return;
     }
 
-    const userMessage: ChatMessage = {
+    const userMessage: AIChatMessage = {
       role: 'user',
       content,
       timestamp: new Date(),
-      attachments,
+      metadata: {
+        type: 'general',
+        attachments
+      }
     };
 
     // Add user message immediately
     setMessages(prev => [...prev, userMessage]);
     setIsLoading(true);
+    setIsTyping(true);
     setError(null);
 
     try {
+      // Check for app command and fetch data if needed
+      const dataContext = await processAIResponse(content);
+      
       // Prepare conversation history with system prompt
       const conversationHistory: ChatMessage[] = [
-        { role: 'system', content: systemPrompt },
-        ...messages.slice(-5), // Last 5 messages for context
-        userMessage
+        { 
+          role: 'system', 
+          content: getSystemPrompt(),
+          timestamp: new Date()
+        },
+        ...messages.slice(-5).map(msg => ({
+          role: msg.role,
+          content: msg.content,
+          timestamp: msg.timestamp,
+          metadata: msg.metadata
+        } as ChatMessage)),
+        {
+          role: 'user',
+          content,
+          timestamp: new Date(),
+          metadata: { attachments }
+        } as ChatMessage
       ];
+
+      // If we have data context, add it to the system prompt
+      if (dataContext) {
+        conversationHistory[0].content += `\n\nI have fetched the following data for the user's query:\n${dataContext}\n\nPlease use this data to answer their question.`;
+      }
 
       // Get response from DeepSeek with enhanced context
       const response = await deepseekService.chatThroughBackend(conversationHistory);
       
-      // Check if response includes API calls
       const aiResponse = response.choices[0]?.message?.content || 'I apologize, but I couldn\'t process your request.';
-      
-      // Parse for potential API calls in the response
-      const processedResponse = await processAIResponse(aiResponse, content);
 
-      const assistantMessage: ChatMessage = {
+      const assistantMessage: AIChatMessage = {
         role: 'assistant',
-        content: processedResponse,
+        content: aiResponse,
         timestamp: new Date(),
+        metadata: {
+          type: dataContext ? 'app_command' : 'general',
+          command: detectAppCommand(content)?.command?.name,
+          dataFetched: !!dataContext
+        }
       };
 
       // Add assistant response
       setMessages(prev => [...prev, assistantMessage]);
+      
+      // Save to chat history
+      await saveChatHistory([userMessage, assistantMessage]);
+      
     } catch (err: any) {
       setError(err.message || 'Failed to get response from AI');
       
       // Add error message
-      const errorMessage: ChatMessage = {
+      const errorMessage: AIChatMessage = {
         role: 'assistant',
         content: 'Sorry, I encountered an error. Please try again.',
         timestamp: new Date(),
+        metadata: { type: 'error' }
       };
       setMessages(prev => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
+      setIsTyping(false);
     }
-  };
+  }, [messages, processAIResponse, detectAppCommand]);
 
-  const processAIResponse = async (aiResponse: string, userQuery: string): Promise<string> => {
+  const saveChatHistory = async (newMessages: AIChatMessage[]) => {
     try {
-      // Check if the AI response indicates it wants to fetch data
-      const lowerQuery = userQuery.toLowerCase();
-      const lowerResponse = aiResponse.toLowerCase();
+      // Get existing history
+      const existingHistory = await AsyncStorage.getItem('chat_history');
+      const history = existingHistory ? JSON.parse(existingHistory) : [];
       
-      let fetchedData: any = null;
-      let dataContext = '';
+      // Add new messages
+      const updatedHistory = [...history, ...newMessages];
       
-      // Check for shift-related queries
-      if (lowerQuery.includes('shift') || lowerQuery.includes('rota') || lowerQuery.includes('schedule')) {
-        if (lowerQuery.includes('my') || lowerQuery.includes('upcoming') || lowerQuery.includes('next')) {
-          // Fetch user's shifts
-          fetchedData = await fetchData('myShifts');
-          if (fetchedData && fetchedData.length > 0) {
-            const formattedShifts = fetchedData.map((shift: any, index: number) => 
-              `${index + 1}. ${shift.title || 'Shift'} - ${new Date(shift.start_time).toLocaleDateString()} ${new Date(shift.start_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} to ${new Date(shift.end_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} (${shift.status})`
-            ).join('\n');
-            dataContext = `\n\nHere are your shifts:\n${formattedShifts}`;
-          } else {
-            dataContext = '\n\nYou have no upcoming shifts scheduled.';
-          }
-        } else if (lowerQuery.includes('open') || lowerQuery.includes('available')) {
-          // Fetch open shifts
-          fetchedData = await fetchData('openShifts');
-          if (fetchedData && fetchedData.length > 0) {
-            const formattedShifts = fetchedData.map((shift: any, index: number) => 
-              `${index + 1}. ${shift.title || 'Shift'} - ${new Date(shift.start_time).toLocaleDateString()} ${new Date(shift.start_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} to ${new Date(shift.end_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} at ${shift.location || 'Location not specified'}`
-            ).join('\n');
-            dataContext = `\n\nAvailable open shifts:\n${formattedShifts}`;
-          } else {
-            dataContext = '\n\nThere are currently no open shifts available.';
-          }
-        }
+      // Keep only last 100 messages
+      if (updatedHistory.length > 100) {
+        updatedHistory.splice(0, updatedHistory.length - 100);
       }
       
-      // Check for staff-related queries
-      else if (lowerQuery.includes('staff') || lowerQuery.includes('employee') || lowerQuery.includes('team')) {
-        fetchedData = await fetchData('staff');
-        if (fetchedData && fetchedData.length > 0) {
-          const staffList = fetchedData.map((staff: any, index: number) => 
-            `${index + 1}. ${staff.first_name} ${staff.last_name} - ${staff.position || 'No position'} (${staff.email})`
-          ).join('\n');
-          dataContext = `\n\nStaff members:\n${staffList}`;
-        }
-      }
-      
-      // Check for payslip queries
-      else if (lowerQuery.includes('payslip') || lowerQuery.includes('payroll') || lowerQuery.includes('salary')) {
-        if (lowerQuery.includes('my')) {
-          fetchedData = await fetchData('myPayslips');
-        } else {
-          fetchedData = await fetchData('payslips');
-        }
-        
-        if (fetchedData && fetchedData.length > 0) {
-          const payslipList = fetchedData.slice(0, 5).map((payslip: any, index: number) => 
-            `${index + 1}. ${payslip.payslip_number || 'Payslip'} - ${new Date(payslip.pay_period_start).toLocaleDateString()} to ${new Date(payslip.pay_period_end).toLocaleDateString()} - £${payslip.net_pay?.toFixed(2) || '0.00'} (${payslip.status})`
-          ).join('\n');
-          dataContext = `\n\nRecent payslips:\n${payslipList}`;
-        }
-      }
-      
-      // Check for company info queries
-      else if (lowerQuery.includes('company') || lowerQuery.includes('location')) {
-        fetchedData = await fetchData('company');
-        if (fetchedData) {
-          dataContext = `\n\nCompany: ${fetchedData.name || 'Unnamed Company'}\nAddress: ${fetchedData.address || 'Not specified'}`;
-        }
-      }
-      
-      // Combine AI response with fetched data
-      return aiResponse + dataContext;
-      
+      await AsyncStorage.setItem('chat_history', JSON.stringify(updatedHistory));
     } catch (error) {
-      console.error('Error processing AI response:', error);
-      return aiResponse;
+      console.error('Error saving chat history:', error);
     }
   };
 
-  const clearMessages = () => {
-    setMessages([
-      {
-        role: 'assistant',
-        content: 'Hello! I\'m your HourWize AI assistant. How can I help you today?',
-        timestamp: new Date(),
-      },
-    ]);
-  };
+  const loadChatHistory = useCallback(async (page: number = 1) => {
+    try {
+      const existingHistory = await AsyncStorage.getItem('chat_history');
+      if (existingHistory) {
+        const history = JSON.parse(existingHistory);
+        setMessages(history);
+        setTotalMessages(history.length);
+        setHasMoreHistory(history.length > 20);
+      }
+    } catch (error) {
+      console.error('Error loading chat history:', error);
+    }
+  }, []);
+
+  const loadMoreHistory = useCallback(async () => {
+    if (!hasMoreHistory || isLoading) return;
+    
+    const nextPage = historyPage + 1;
+    setHistoryPage(nextPage);
+    
+    // Load additional history if needed
+    // For now, we're using AsyncStorage with all history loaded
+    setHasMoreHistory(false);
+  }, [hasMoreHistory, isLoading, historyPage]);
+
+  const clearMessages = useCallback(async () => {
+    try {
+      await AsyncStorage.removeItem('chat_history');
+      setMessages([
+        {
+          role: 'assistant',
+          content: 'Hello! I\'m your HourWize AI assistant. How can I help you today?',
+          timestamp: new Date(),
+          metadata: { type: 'general' }
+        },
+      ]);
+      setHistoryPage(1);
+      setTotalMessages(1);
+      setHasMoreHistory(false);
+      setError(null);
+    } catch (error) {
+      console.error('Failed to clear messages:', error);
+      setError('Failed to clear chat history');
+    }
+  }, []);
+
+  const fetchAppCommands = useCallback(async () => {
+    try {
+      // Commands are already defined locally
+      setAppCommands(APP_COMMANDS);
+    } catch (error) {
+      console.error('Failed to fetch app commands:', error);
+    }
+  }, []);
+
+  const fetchAvailableModels = useCallback(async () => {
+    try {
+      // Try to fetch from backend
+      const response = await apiClient.get('/ai-chat/models');
+      if (response.data.success) {
+        setAvailableModels(response.data.models);
+      }
+    } catch (error) {
+      console.error('Failed to fetch models:', error);
+      // Use default models
+      setAvailableModels(['deepseek-chat', 'deepseek-coder']);
+    }
+  }, [apiClient]);
+
+  // Initialize on mount
+  useEffect(() => {
+    loadChatHistory(1);
+    fetchAppCommands();
+    fetchAvailableModels();
+  }, [loadChatHistory, fetchAppCommands, fetchAvailableModels]);
 
   const value: AIChatContextType = {
     messages,
@@ -388,6 +669,11 @@ Current date: ${new Date().toLocaleDateString()}`;
     setModel: setCurrentModel,
     currentModel,
     availableModels,
+    appCommands,
+    isTyping,
+    hasMoreHistory,
+    loadMoreHistory,
+    fetchAppCommands,
     fetchData,
     performAction,
     availableEndpoints: AVAILABLE_ENDPOINTS,

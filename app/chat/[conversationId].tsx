@@ -1,5 +1,6 @@
-// app/chat/[conversationId].tsx
+// app/chat/[conversationId].tsx - FIXED VERSION
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import { Menu, Provider as PaperProvider } from 'react-native-paper';
 import {
   View,
   Text,
@@ -15,17 +16,13 @@ import {
   Image,
   Animated,
   Dimensions,
-  Modal,
-  Pressable,
-  TextInput,
-  ScrollView,
-  Easing,
   Keyboard,
-  KeyboardEvent
+  AppState,
+  AppStateStatus
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { Ionicons, MaterialIcons, Feather, FontAwesome5, FontAwesome } from '@expo/vector-icons';
+import { Stack, useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -34,28 +31,23 @@ import { useChat } from './hooks/useChat';
 import { MessageBubble } from './components/MessageBubble';
 import { MessageInput } from './components/MessageInput';
 import { EmptyChat } from './components/EmptyChat';
+import { TypingIndicator } from './components/TypingIndicator';
 import { useChatTheme } from './hooks/useChatTheme';
 
 import { useVideo } from '../../contexts/VideoContext';
-// import { VideoCallScreen } from '@/app/calls/VideoCallScreen';
 import { CallInvitationModal } from '../../app/calls/callInvitationModal';
-import { chatService } from '@/services/chatService';
-
 import { socketService } from '@/services/socketService';
+import { notificationService } from '@/services/notificationService';
 
 const { width, height } = Dimensions.get('window');
 
 export default function ChatPage() {
-  const { conversationId } = useLocalSearchParams();
+  const { conversationId } = useLocalSearchParams<{ conversationId: string }>();
   const router = useRouter();
   const { colors, isDark } = useChatTheme();
   const flatListRef = useRef<FlatList>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
-  const [showOptionsModal, setShowOptionsModal] = useState(false);
-  const [showUserInfo, setShowUserInfo] = useState(false);
-  const [isTyping, setIsTyping] = useState(false);
-  const [typingUser, setTypingUser] = useState<string>('');
   const [showMessageActions, setShowMessageActions] = useState<string | null>(null);
   const [replyMessage, setReplyMessage] = useState<any>(null);
   const [editMessage, setEditMessage] = useState<any>(null);
@@ -66,13 +58,9 @@ export default function ChatPage() {
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const lastWebSocketMessageIdRef = useRef<string | null>(null);
-
-  const { 
-    createAndJoinRoom, 
-    showVideoScreen, 
-    setShowVideoScreen,
-    isInCall 
-  } = useVideo();
+  const appStateRef = useRef(AppState.currentState);
+  const [menuVisible, setMenuVisible] = useState(false);
+  const { initiateCall } = useVideo();
   
   const {
     messages,
@@ -89,87 +77,94 @@ export default function ChatPage() {
     loadMoreMessages,
     user,
     deleteMessage,
-    updateMessage
+    updateMessage,
+    isTyping,
+    typingUser,
+    handleTypingStart,
+    handleTypingStop,
+    useEncryption,
+    toggleEncryption,
   } = useChat(conversationId as string);
 
   const styles = createStyles(colors, isDark, keyboardHeight);
-  const [showCallScreen, setShowCallScreen] = useState(false);
 
-  // Typing indicator animation
-  const typingAnim = useRef(new Animated.Value(0)).current;
-  
-  useEffect(() => {
-    if (isTyping) {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(typingAnim, {
-            toValue: 1,
-            duration: 500,
-            easing: Easing.linear,
-            useNativeDriver: true
-          }),
-          Animated.timing(typingAnim, {
-            toValue: 0,
-            duration: 500,
-            easing: Easing.linear,
-            useNativeDriver: true
-          })
-        ])
-      ).start();
-    }
-  }, [isTyping]);
-
-  // Memoize messages to prevent unnecessary re-renders
-  const memoizedMessages = useMemo(() => {
-    // Make sure messages are sorted with newest at the end
-    return [...messages].sort((a, b) => 
-      new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-    );
-  }, [messages]);
-
-  // Track WebSocket messages for auto-scroll
-  useEffect(() => {
-    if (memoizedMessages.length === 0) return;
-    
-    const lastMessage = memoizedMessages[memoizedMessages.length - 1];
-    if (!lastMessage) return;
-    
-    // Check if this is a WebSocket message (not from current user, not temp)
-    const isWebSocketMessage = lastMessage.sender?._id !== user?._id && 
-                               !lastMessage._id?.startsWith('temp-') &&
-                               !lastMessage.isSending;
-    
-    if (isWebSocketMessage && lastMessage._id !== lastWebSocketMessageIdRef.current) {
-      lastWebSocketMessageIdRef.current = lastMessage._id;
-      
-      // Auto-scroll if we're at the bottom
-      if (isAtBottom && !isScrollingRef.current) {
-        console.log('🔽 Auto-scrolling to WebSocket message:', lastMessage._id);
-        setTimeout(() => {
-          flatListRef.current?.scrollToEnd({ animated: true });
-        }, 100);
+  // =============================================
+  // NOTIFICATION HANDLING
+  // =============================================
+  useFocusEffect(
+    useCallback(() => {
+      if (conversationId) {
+        notificationService.markConversationAsActive(conversationId);
       }
-    }
-  }, [memoizedMessages, user, isAtBottom]);
+      
+      return () => {
+        if (conversationId) {
+          notificationService.markConversationAsInactive(conversationId);
+        }
+      };
+    }, [conversationId])
+  );
 
-  // Auto-scroll when sending messages
   useEffect(() => {
-    if (sending && isAtBottom) {
-      setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
-      }, 100);
-    }
-  }, [sending, isAtBottom]);
+    const handleAppStateChange = (nextAppState: AppStateStatus) => {
+      appStateRef.current = nextAppState;
+      
+      if (nextAppState === 'active' && conversationId) {
+        notificationService.markConversationAsActive(conversationId);
+      } else if ((nextAppState === 'background' || nextAppState === 'inactive') && conversationId) {
+        notificationService.markConversationAsInactive(conversationId);
+      }
+    };
 
-  // Handle keyboard events
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+
+    return () => {
+      subscription.remove();
+      if (conversationId) {
+        notificationService.markConversationAsInactive(conversationId);
+      }
+    };
+  }, [conversationId]);
+
+  // =============================================
+  // FIXED: MEMOIZE MESSAGES WITH PROPER FILTERING
+  // =============================================
+// Update the memoizedMessages to include read status check:
+const memoizedMessages = useMemo(() => {
+  // Remove duplicate messages by ID
+  const uniqueMessages = messages.filter((msg, index, self) =>
+    index === self.findIndex((m) => m._id === msg._id)
+  );
+  
+  // Add read status to each message if missing
+  const messagesWithReadStatus = uniqueMessages.map(msg => {
+    // Ensure readBy array exists
+    if (!msg.readBy) {
+      return { ...msg, readBy: [] };
+    }
+    return msg;
+  });
+  
+  // Sort by createdAt (oldest to newest for FlatList)
+  return messagesWithReadStatus.sort((a, b) => {
+    const timeA = new Date(a.createdAt || 0).getTime();
+    const timeB = new Date(b.createdAt || 0).getTime();
+    return timeA - timeB;
+  });
+}, [messages]);
+
+  // =============================================
+  // FIXED: KEYBOARD HANDLING FOR ANDROID
+  // =============================================
   useEffect(() => {
     const keyboardDidShowListener = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
-      (e: KeyboardEvent) => {
-        setKeyboardHeight(e.endCoordinates.height);
+      (e: any) => {
+        const keyboardHeight = e.endCoordinates.height;
+        setKeyboardHeight(keyboardHeight);
         setIsKeyboardVisible(true);
         
-        // When keyboard shows and we're at bottom, scroll to show the input
+        // Auto-scroll when keyboard appears
         if (isAtBottom && memoizedMessages.length > 0) {
           setTimeout(() => {
             flatListRef.current?.scrollToEnd({ animated: true });
@@ -192,70 +187,44 @@ export default function ChatPage() {
     };
   }, [isAtBottom, memoizedMessages.length]);
 
+  // =============================================
+  // FIXED: AUTO-SCROLL LOGIC
+  // =============================================
   useEffect(() => {
-  if (!conversationId || !socketService.isConnected()) return;
-  
-  // Join the conversation room
-  socketService.joinConversation(conversationId as string);
-  
-  // Set up socket listeners for this conversation
-  const handleIncomingMessage = (message: any) => {
-    if (message.conversationId === conversationId) {
-      console.log('📨 Real-time message received in chat:', message);
-      // Update messages in real-time
-      // Note: You'll need to update your useChat hook to handle incoming messages
-      // or add a state updater here
-    }
-  };
-
-  const handleUserTyping = (data: any) => {
-    if (data.conversationId === conversationId && data.userId !== user?._id) {
-      setIsTyping(true);
-      setTypingUser(data.userName || 'Someone');
-      
-      // Auto hide typing indicator after 3 seconds
-      setTimeout(() => {
-        setIsTyping(false);
-        setTypingUser('');
-      }, 3000);
-    }
-  };
-
-  const handleUserStopTyping = (data: any) => {
-    if (data.conversationId === conversationId && data.userId !== user?._id) {
-      setIsTyping(false);
-      setTypingUser('');
-    }
-  };
-
-  const handleConversationUpdated = (data: any) => {
-    if (data._id === conversationId) {
-      console.log('🔄 Conversation updated in real-time:', data);
-      // Update conversation details if needed
-    }
-  };
-
-  // Listen to socket events
-  socketService.on('new_message', handleIncomingMessage);
-  socketService.on('user_typing', handleUserTyping);
-  socketService.on('user_stop_typing', handleUserStopTyping);
-  socketService.on('conversation_updated', handleConversationUpdated);
-
-  return () => {
-    // Leave the conversation room when component unmounts
-    if (conversationId) {
-      socketService.leaveConversation(conversationId as string);
-    }
+    if (memoizedMessages.length === 0) return;
     
-    // Clean up listeners
-    socketService.off('new_message', handleIncomingMessage);
-    socketService.off('user_typing', handleUserTyping);
-    socketService.off('user_stop_typing', handleUserStopTyping);
-    socketService.off('conversation_updated', handleConversationUpdated);
-  };
-}, [conversationId, user?._id]);
+    const lastMessage = memoizedMessages[memoizedMessages.length - 1];
+    if (!lastMessage) return;
+    
+    // Check if this is a WebSocket message from other user
+    const isWebSocketMessage = lastMessage.sender?._id !== user?._id && 
+                               !lastMessage._id?.startsWith('temp-') &&
+                               !lastMessage.isSending;
+    
+    if (isWebSocketMessage && lastMessage._id !== lastWebSocketMessageIdRef.current) {
+      lastWebSocketMessageIdRef.current = lastMessage._id;
+      
+      // Auto-scroll if we're at the bottom
+      if (isAtBottom && !isScrollingRef.current) {
+        setTimeout(() => {
+          flatListRef.current?.scrollToEnd({ animated: true });
+        }, 100);
+      }
+    }
+  }, [memoizedMessages, user, isAtBottom]);
 
-  // Hide scroll button after 3 seconds of inactivity
+  // Auto-scroll when sending messages
+  useEffect(() => {
+    if (sending && isAtBottom) {
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+    }
+  }, [sending, isAtBottom]);
+
+  // =============================================
+  // SCROLL HANDLING
+  // =============================================
   const hideScrollButton = useCallback(() => {
     if (hideButtonTimeoutRef.current) {
       clearTimeout(hideButtonTimeoutRef.current);
@@ -268,27 +237,22 @@ export default function ChatPage() {
     }, 3000);
   }, [showScrollToBottom]);
 
-  // Show scroll button for a limited time
   const showScrollButtonTemporarily = useCallback(() => {
     setShowScrollToBottom(true);
     hideScrollButton();
   }, [hideScrollButton]);
 
-  // Scroll event handler
   const handleScroll = useCallback((event: any) => {
     const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
     
     // Calculate distance from bottom
     const distanceFromBottom = contentSize.height - contentOffset.y - layoutMeasurement.height;
     
-    // Consider "at bottom" if within 100 pixels (more generous)
+    // Consider "at bottom" if within 100 pixels
     const atBottom = distanceFromBottom <= 100;
     setIsAtBottom(atBottom);
     
-    // Only show scroll-to-bottom button if:
-    // 1. Not at bottom
-    // 2. Have enough messages
-    // 3. Scrolled up at least 150px from bottom
+    // Show scroll-to-bottom button if scrolled up
     const shouldShowButton = !atBottom && 
       memoizedMessages.length > 5 && 
       distanceFromBottom > 150;
@@ -305,17 +269,14 @@ export default function ChatPage() {
     // Track scrolling state
     isScrollingRef.current = true;
     
-    // Clear previous timeout
     if (scrollTimeoutRef.current) {
       clearTimeout(scrollTimeoutRef.current);
     }
     
-    // Set timeout to reset scrolling state
     scrollTimeoutRef.current = setTimeout(() => {
       isScrollingRef.current = false;
     }, 150);
     
-    // Animate header on scroll
     scrollY.setValue(contentOffset.y);
   }, [memoizedMessages.length, showScrollToBottom, showScrollButtonTemporarily]);
 
@@ -331,23 +292,22 @@ export default function ChatPage() {
     };
   }, []);
 
-  // Scroll to bottom function
   const scrollToBottom = useCallback(() => {
     isScrollingRef.current = false;
     flatListRef.current?.scrollToEnd({ animated: true });
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     
-    // Hide button immediately when clicked
     setShowScrollToBottom(false);
     setIsAtBottom(true);
     
-    // Clear any pending hide timeout
     if (hideButtonTimeoutRef.current) {
       clearTimeout(hideButtonTimeoutRef.current);
     }
   }, []);
 
-  // Enhanced key extractor
+  // =============================================
+  // MESSAGE HANDLERS
+  // =============================================
   const keyExtractor = useCallback((item: any, index: number) => {
     if (item._id?.startsWith('temp-')) return item._id;
     if (item._id) return item._id;
@@ -389,36 +349,31 @@ export default function ChatPage() {
     return null;
   };
 
-  // Animated header background
-  const headerBgOpacity = scrollY.interpolate({
-    inputRange: [0, 100],
-    outputRange: [0, 1],
-    extrapolate: 'clamp'
-  });
+// In the renderMessage function:
+const renderMessage = useCallback(({ item, index }: { item: any; index: number }) => {
+  const isCurrentUser = item.sender?._id === user?._id;
+  const previousMessage = memoizedMessages[index - 1];
+  const showAvatar = !previousMessage || previousMessage.sender?._id !== item.sender?._id;
+  const showDateSeparator = checkDateSeparator(item, previousMessage);
 
-  const renderMessage = useCallback(({ item, index }: { item: any; index: number }) => {
-    const isCurrentUser = item.sender?._id === user?._id;
-    const previousMessage = memoizedMessages[index - 1];
-    const showAvatar = !previousMessage || previousMessage.sender?._id !== item.sender?._id;
-    const showDateSeparator = checkDateSeparator(item, previousMessage);
-
-    return (
-      <View>
-        {showDateSeparator && renderDateSeparator(item.createdAt)}
-        <MessageBubble
-          message={item}
-          isCurrentUser={isCurrentUser}
-          showAvatar={showAvatar}
-          user={user}
-          onLongPress={() => handleMessageLongPress(item)}
-          onReply={() => handleReplyMessage(item)}
-          onEdit={() => handleEditMessage(item)}
-          onDelete={() => handleDeleteMessage(item)}
-          showActions={showMessageActions === item._id}
-        />
-      </View>
-    );
-  }, [memoizedMessages, user, showMessageActions]);
+  return (
+    <View>
+      {showDateSeparator && renderDateSeparator(item.createdAt)}
+      <MessageBubble
+        message={item}
+        isCurrentUser={isCurrentUser}
+        showAvatar={showAvatar}
+        user={user}
+        conversation={conversation} // ADD THIS LINE - pass conversation
+        onLongPress={() => handleMessageLongPress(item)}
+        onReply={() => handleReplyMessage(item)}
+        onEdit={() => handleEditMessage(item)}
+        onDelete={() => handleDeleteMessage(item)}
+        showActions={showMessageActions === item._id}
+      />
+    </View>
+  );
+}, [memoizedMessages, user, conversation, showMessageActions]); // Add conversation to dependencies
 
   const checkDateSeparator = (current: any, previous: any) => {
     if (!previous) return false;
@@ -491,6 +446,72 @@ export default function ChatPage() {
     );
   };
 
+  const handleSendMessage = useCallback(() => {
+    if (newMessage.trim()) {
+      if (editMessage) {
+        updateMessage(editMessage._id, newMessage);
+        setEditMessage(null);
+      } else {
+        sendMessage();
+      }
+      setNewMessage('');
+      setReplyMessage(null);
+      setIsAtBottom(true);
+      handleTypingStop();
+    }
+  }, [newMessage, editMessage, sendMessage, updateMessage, handleTypingStop]);
+
+  const handleTypingStartLocal = useCallback(() => {
+    if (newMessage.trim()) {
+      handleTypingStart();
+    }
+  }, [newMessage, handleTypingStart]);
+
+  const handleTypingStopLocal = useCallback(() => {
+    handleTypingStop();
+  }, [handleTypingStop]);
+
+// In your chat screen, update the handleVideoCall function:
+const handleVideoCall = async () => {
+  if (!conversation?.participants || !user) return;
+  
+  const otherParticipant = conversation.participants.find(
+    (participant: any) => participant._id !== user._id
+  );
+  
+  if (otherParticipant) {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    
+    try {
+      // Initiate video call
+      const response = await initiateCall(otherParticipant._id, 'video', conversationId);
+      
+      // Check if we got a valid response
+      if (!response || !response.callId) {
+        console.error('Invalid response from initiateCall:', response);
+        Alert.alert('Error', 'Failed to initiate call. Please try again.');
+        return;
+      }
+      
+      // Navigate to video call screen
+      router.push({
+        pathname: '/calls/VideoCallScreen',
+        params: {
+          callId: response.callId,
+          callerName: `${otherParticipant.first_name} ${otherParticipant.last_name}`,
+          callType: 'video',
+        }
+      });
+    } catch (error: any) {
+      console.error('Error initiating video call:', error);
+      Alert.alert('Error', error.message || 'Failed to initiate call');
+    }
+  }
+};
+
+  // =============================================
+  // RENDER METHODS
+  // =============================================
   const renderFooter = () => {
     if (!loadingMore) return null;
     return (
@@ -507,160 +528,126 @@ export default function ChatPage() {
     }
   };
 
-const handleSendMessage = useCallback(() => {
-  if (newMessage.trim()) {
-    if (editMessage) {
-      updateMessage(editMessage._id, newMessage);
-      setEditMessage(null);
-    } else {
-      sendMessage();
-    }
-    setNewMessage('');
-    setReplyMessage(null);
-    // Ensure we're at bottom after sending
-    setIsAtBottom(true);
-    
-    // Send stop typing indicator
-    chatService.sendStopTypingIndicator(conversationId as string);
-  }
-}, [newMessage, editMessage, sendMessage, updateMessage, conversationId]);
+  // Animated header background
+  // const headerBgOpacity = scrollY.interpolate({
+  //   inputRange: [0, 100],
+  //   outputRange: [0, 1],
+  //   extrapolate: 'clamp'
+  // });
 
-
-const handleTypingStart = () => {
-  if (newMessage.trim() && socketService.isConnected()) {
-    chatService.sendTypingIndicator(conversationId as string);
-  }
-};
-
-const handleTypingStop = () => {
-  if (socketService.isConnected()) {
-    chatService.sendStopTypingIndicator(conversationId as string);
-  }
-};
-
-  const handleVideoCall = async () => {
-    if (!conversation?.participants || !user) return;
-    
-    const otherParticipant = conversation.participants.find(
-      (participant: any) => participant._id !== user._id
-    );
-    
-    if (otherParticipant) {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      const roomName = `Chat with ${otherParticipant.first_name}`;
+const renderHeader = () => {
+  const chatUserImage = getChatUserImage();
+  
+  return (
+    <Animated.View style={[styles.headerContainer]}>
+      <LinearGradient
+        colors={isDark ? ['rgba(31, 41, 55, 0.98)', 'rgba(31, 41, 55, 0.9)'] : ['rgba(255, 255, 255, 0.98)', 'rgba(255, 255, 255, 0.9)']}
+        style={StyleSheet.absoluteFill}
+      />
+      <BlurView intensity={80} style={StyleSheet.absoluteFill} tint={isDark ? 'dark' : 'light'} />
       
-      try {
-        const socket = socketService.getSocket();
-        if (socket) {
-          socket.emit('video_call_invitation', {
-            conversationId: conversationId,
-            callerId: user._id,
-            callerName: `${user.first_name} ${user.last_name}`,
-            roomName,
-          });
-        }
-      } catch (error) {
-        console.error('Error sending socket invitation:', error);
-      }
-      
-      await createAndJoinRoom(roomName);
-      setShowCallScreen(true);
-    }
-  };
-
-  const handleVoiceCall = async () => {
-    await handleVideoCall();
-  };
-
-  const handleAttachFile = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setShowOptionsModal(true);
-  };
-
-  // Options Modal
-  const renderOptionsModal = () => (
-    <Modal
-      animationType="fade"
-      transparent={true}
-      visible={showOptionsModal}
-      onRequestClose={() => setShowOptionsModal(false)}
-    >
-      <Pressable 
-        style={styles.modalOverlay} 
-        onPress={() => setShowOptionsModal(false)}
-      >
-        <BlurView intensity={80} style={styles.modalBlur}>
-          <Pressable style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Share</Text>
-              <TouchableOpacity 
-                style={styles.closeButton}
-                onPress={() => setShowOptionsModal(false)}
-              >
-                <Ionicons name="close" size={24} color={colors.textPrimary} />
-              </TouchableOpacity>
+      <View style={styles.headerContent}>
+        <TouchableOpacity 
+          style={styles.headerBackButton}
+          onPress={() => router.back()}
+        >
+          <Ionicons 
+            name="chevron-back" 
+            size={24} 
+            color={colors.textPrimary} 
+          />
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={styles.headerUserInfo}
+        >
+          {chatUserImage ? (
+            <Image 
+              source={{ uri: chatUserImage }} 
+              style={styles.headerUserImage} 
+            />
+          ) : (
+            <View style={styles.headerUserImagePlaceholder}>
+              <Text style={styles.headerUserInitials}>
+                {getChatUserName().split(' ').map((n: string) => n[0]).join('')}
+              </Text>
             </View>
-            
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              <View style={styles.optionsGrid}>
-                <TouchableOpacity 
-                  style={styles.optionItem}
-                  onPress={() => {/* Open camera */}}
-                >
-                  <View style={[styles.optionIcon, { backgroundColor: '#FF6B6B' }]}>
-                    <Ionicons name="camera" size={24} color="white" />
-                  </View>
-                  <Text style={styles.optionText}>Camera</Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity 
-                  style={styles.optionItem}
-                  onPress={() => {/* Open gallery */}}
-                >
-                  <View style={[styles.optionIcon, { backgroundColor: '#4ECDC4' }]}>
-                    <Ionicons name="image" size={24} color="white" />
-                  </View>
-                  <Text style={styles.optionText}>Photos</Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity 
-                  style={styles.optionItem}
-                  onPress={() => {/* Open documents */}}
-                >
-                  <View style={[styles.optionIcon, { backgroundColor: '#45B7D1' }]}>
-                    <MaterialIcons name="insert-drive-file" size={24} color="white" />
-                  </View>
-                  <Text style={styles.optionText}>Documents</Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity 
-                  style={styles.optionItem}
-                  onPress={() => {/* Open location */}}
-                >
-                  <View style={[styles.optionIcon, { backgroundColor: '#96CEB4' }]}>
-                    <Ionicons name="location" size= {24} color="white" />
-                  </View>
-                  <Text style={styles.optionText}>Location</Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity 
-                  style={styles.optionItem}
-                  onPress={() => {/* Open contact */}}
-                >
-                  <View style={[styles.optionIcon, { backgroundColor: '#FFD93D' }]}>
-                    <Ionicons name="person" size={24} color="white" />
-                  </View>
-                  <Text style={styles.optionText}>Contact</Text>
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
-          </Pressable>
-        </BlurView>
-      </Pressable>
-    </Modal>
+          )}
+          <View style={styles.headerTextContainer}>
+            <Text style={styles.headerUserName} numberOfLines={1}>
+              {getChatUserName()}
+            </Text>
+            {isTyping && (
+              <Text style={styles.headerUserStatus}>
+                Typing...
+              </Text>
+            )}
+          </View>
+        </TouchableOpacity>
+        
+        <View style={styles.headerActions}>
+          {/* Encryption Toggle Button */}
+          <Menu
+            visible={menuVisible}
+            onDismiss={() => setMenuVisible(false)}
+            anchor={
+              <TouchableOpacity 
+                style={styles.headerActionButton}
+                onPress={() => setMenuVisible(true)}
+              >
+                <Ionicons 
+                  name={useEncryption ? "lock-closed" : "lock-open"} 
+                  size={22} 
+                  color={useEncryption ? colors.currentUserBubble : colors.textTertiary} 
+                />
+              </TouchableOpacity>
+            }
+            contentStyle={styles.menuContent}
+          >
+            <Menu.Item 
+              onPress={() => {
+                setMenuVisible(false);
+                toggleEncryption();
+              }}
+              title={useEncryption ? "Disable Encryption" : "Enable Encryption"}
+              leadingIcon={useEncryption ? "lock-open" : "lock-closed"}
+              titleStyle={{ color: isDark ? '#F9FAFB' : '#111827' }}
+            />
+            <Menu.Item 
+              onPress={() => setMenuVisible(false)}
+              title="Cancel"
+              leadingIcon="close"
+              titleStyle={{ color: isDark ? '#F9FAFB' : '#111827' }}
+            />
+          </Menu>
+          
+          <TouchableOpacity 
+            style={styles.headerActionButton}
+            onPress={handleVideoCall}
+          >
+            <Ionicons 
+              name="call-outline" 
+              size={22} 
+              color={colors.currentUserBubble}
+            />
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={styles.headerActionButton}
+            onPress={handleVideoCall}
+          >
+            <Ionicons 
+              name="videocam-outline" 
+              size={22} 
+              color={colors.currentUserBubble}
+            />
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Animated.View>
   );
+};
 
-  // Reply Preview Component
   const renderReplyPreview = () => {
     if (!replyMessage) return null;
 
@@ -694,124 +681,6 @@ const handleTypingStop = () => {
     );
   };
 
-  // Typing Indicator Component
-  const renderTypingIndicator = () => {
-    if (!isTyping) return null;
-
-    const typingOpacity = typingAnim.interpolate({
-      inputRange: [0, 1],
-      outputRange: [0.3, 1]
-    });
-
-    return (
-      <View style={styles.typingContainer}>
-        <View style={styles.typingBubble}>
-          <Animated.View style={[styles.typingDot, { opacity: typingOpacity }]} />
-          <Animated.View style={[styles.typingDot, { 
-            opacity: typingAnim,
-            animationDelay: '100ms'
-          }]} />
-          <Animated.View style={[styles.typingDot, { 
-            opacity: typingAnim,
-            animationDelay: '200ms'
-          }]} />
-        </View>
-        <Text style={styles.typingText}>{typingUser} is typing...</Text>
-      </View>
-    );
-  };
-
-  // Enhanced header with gradient and animations
-  const renderHeader = () => {
-    const chatUserImage = getChatUserImage();
-    
-    return (
-      <Animated.View style={[styles.headerContainer, { opacity: headerBgOpacity }]}>
-        <LinearGradient
-          colors={isDark ? ['rgba(31, 41, 55, 0.98)', 'rgba(31, 41, 55, 0.9)'] : ['rgba(255, 255, 255, 0.98)', 'rgba(255, 255, 255, 0.9)']}
-          style={StyleSheet.absoluteFill}
-        />
-        <BlurView intensity={80} style={StyleSheet.absoluteFill} tint={isDark ? 'dark' : 'light'} />
-        
-        <View style={styles.headerContent}>
-          <TouchableOpacity 
-            style={styles.headerBackButton}
-            onPress={() => router.back()}
-          >
-            <Ionicons 
-              name="chevron-back" 
-              size={24} 
-              color={colors.textPrimary} 
-            />
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={styles.headerUserInfo}
-            onPress={() => setShowUserInfo(true)}
-          >
-            {chatUserImage ? (
-              <Image 
-                source={{ uri: chatUserImage }} 
-                style={styles.headerUserImage} 
-              />
-            ) : (
-              <View style={styles.headerUserImagePlaceholder}>
-                <Text style={styles.headerUserInitials}>
-                  {getChatUserName().split(' ').map((n: string) => n[0]).join('')}
-                </Text>
-              </View>
-            )}
-            <View style={styles.headerTextContainer}>
-              <Text style={styles.headerUserName} numberOfLines={1}>
-                {getChatUserName()}
-              </Text>
-              {isTyping && (
-                <Text style={styles.headerUserStatus}>
-                  Typing...
-                </Text>
-              )}
-            </View>
-          </TouchableOpacity>
-          
-          <View style={styles.headerActions}>
-            <TouchableOpacity 
-              style={styles.headerActionButton}
-              onPress={handleVoiceCall}
-            >
-              <Ionicons 
-                name="call-outline" 
-                size={22} 
-                color={colors.currentUserBubble}
-              />
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={styles.headerActionButton}
-              onPress={handleVideoCall}
-            >
-              <Ionicons 
-                name="videocam-outline" 
-                size={22} 
-                color={colors.currentUserBubble}
-              />
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={styles.headerActionButton}
-              onPress={() => setShowUserInfo(true)}
-            >
-              <Ionicons 
-                name="information-circle-outline" 
-                size={22} 
-                color={colors.currentUserBubble}
-              />
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Animated.View>
-    );
-  };
-
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -823,83 +692,91 @@ const handleTypingStop = () => {
   }
 
   return (
-    <View style={styles.container}>
+    // FIXED: Use SafeAreaView and proper KeyboardAvoidingView
+    <PaperProvider>
+    <SafeAreaView style={styles.safeArea} edges={['top']}>
       <Stack.Screen options={{ headerShown: false }} />
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
       
       {/* Animated Header */}
       {renderHeader()}
       
-      {/* Messages List - NOT inverted, showing newest at bottom */}
-      <FlatList
-        ref={flatListRef}
-        data={memoizedMessages}
-        renderItem={renderMessage}
-        keyExtractor={keyExtractor}
-        style={styles.messagesList}
-        contentContainerStyle={[
-          styles.messagesContent,
-          // Add extra padding when keyboard is visible
-          isKeyboardVisible && styles.messagesContentWithKeyboard
-        ]}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl 
-            refreshing={refreshing} 
-            onRefresh={onRefresh}
-            colors={[colors.currentUserBubble]}
-            tintColor={colors.currentUserBubble}
-            progressViewOffset={Platform.OS === 'android' ? 80 : 0}
-          />
-        }
-        onScroll={Animated.event(
-          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-          { useNativeDriver: false, listener: handleScroll }
-        )}
-        onContentSizeChange={() => {
-          // Auto-scroll to bottom when content size changes and we're at bottom
-          if (isAtBottom && memoizedMessages.length > 0 && !isScrollingRef.current) {
-            setTimeout(() => {
-              flatListRef.current?.scrollToEnd({ animated: false });
-            }, 50);
+      {/* FIXED: Main content with KeyboardAvoidingView */}
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoidingView}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      >
+        {/* Messages List */}
+        <FlatList
+          ref={flatListRef}
+          data={memoizedMessages}
+          renderItem={renderMessage}
+          keyExtractor={keyExtractor}
+          style={styles.messagesList}
+          contentContainerStyle={styles.messagesContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl 
+              refreshing={refreshing} 
+              onRefresh={onRefresh}
+              colors={[colors.currentUserBubble]}
+              tintColor={colors.currentUserBubble}
+              progressViewOffset={Platform.OS === 'android' ? 80 : 0}
+            />
           }
-        }}
-        scrollEventThrottle={16}
-        onEndReached={handleLoadMore}
-        onEndReachedThreshold={0.1}
-        ListFooterComponent={renderFooter}
-        ListHeaderComponent={loading ? null : renderTypingIndicator}
-        ListEmptyComponent={
-          <EmptyChat 
-            chatUserName={getChatUserName()}
-            userImage={getChatUserImage()}
-            onCall={handleVideoCall}
-            onMessage={() => {
-              setNewMessage('Hi! 👋');
-            }}
-          />
-        }
-        onMomentumScrollEnd={() => {
-          isScrollingRef.current = false;
-        }}
-        removeClippedSubviews={Platform.OS === 'android'}
-        initialNumToRender={15}
-        maxToRenderPerBatch={10}
-        windowSize={21}
-        inverted={false}
-        // Add keyboard handling
-        keyboardDismissMode="interactive"
-        keyboardShouldPersistTaps="handled"
-      />
+          onScroll={Animated.event(
+            [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+            { useNativeDriver: false, listener: handleScroll }
+          )}
+          onContentSizeChange={() => {
+            if (isAtBottom && memoizedMessages.length > 0 && !isScrollingRef.current) {
+              setTimeout(() => {
+                flatListRef.current?.scrollToEnd({ animated: false });
+              }, 50);
+            }
+          }}
+          scrollEventThrottle={16}
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.1}
+          ListFooterComponent={renderFooter}
+          ListHeaderComponent={
+            <TypingIndicator 
+              isTyping={isTyping} 
+              typingUser={typingUser} 
+            />
+          }
+          ListEmptyComponent={
+            <EmptyChat 
+              chatUserName={getChatUserName()}
+              userImage={getChatUserImage()}
+              onCall={handleVideoCall}
+              onMessage={() => {
+                setNewMessage('Hi! 👋');
+              }}
+            />
+          }
+          onMomentumScrollEnd={() => {
+            isScrollingRef.current = false;
+          }}
+          removeClippedSubviews={Platform.OS === 'android'}
+          initialNumToRender={15}
+          maxToRenderPerBatch={10}
+          windowSize={21}
+          inverted={false}
+          keyboardDismissMode="interactive"
+          keyboardShouldPersistTaps="handled"
+        />
 
-      {/* Scroll to bottom button with animation and timer */}
-      {showScrollToBottom && (
-        <Animated.View style={[
-          styles.scrollToBottomButton,
-          // Move button up when keyboard is visible
-          isKeyboardVisible && { bottom: 110 + keyboardHeight }
-        ]}>
-          <TouchableOpacity onPress={scrollToBottom}>
+        {/* Scroll to bottom button */}
+        {showScrollToBottom && (
+          <TouchableOpacity 
+            style={[
+              styles.scrollToBottomButton,
+              { bottom: isKeyboardVisible ? 20 + keyboardHeight : 20 }
+            ]}
+            onPress={scrollToBottom}
+          >
             <LinearGradient
               colors={[colors.currentUserBubble, '#1D4ED8']}
               style={styles.scrollToBottomGradient}
@@ -909,73 +786,72 @@ const handleTypingStop = () => {
               <Ionicons name="chevron-down" size={24} color="white" />
             </LinearGradient>
           </TouchableOpacity>
-        </Animated.View>
-      )}
+        )}
 
-      {/* Cancel Edit/Reply buttons */}
-      {(editMessage || replyMessage) && (
-        <View style={styles.cancelActionsContainer}>
-          <TouchableOpacity 
-            style={styles.cancelActionButton}
-            onPress={() => {
-              if (editMessage) {
-                setEditMessage(null);
-                setNewMessage('');
-              } else if (replyMessage) {
-                setReplyMessage(null);
-              }
-            }}
-          >
-            <Ionicons 
-              name="close" 
-              size={16} 
-              color={colors.textTertiary} 
-            />
-            <Text style={styles.cancelActionText}>
-              {editMessage ? 'Cancel Edit' : 'Cancel Reply'}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      )}
+        {/* Cancel Edit/Reply buttons */}
+        {(editMessage || replyMessage) && (
+          <View style={styles.cancelActionsContainer}>
+            <TouchableOpacity 
+              style={styles.cancelActionButton}
+              onPress={() => {
+                if (editMessage) {
+                  setEditMessage(null);
+                  setNewMessage('');
+                } else if (replyMessage) {
+                  setReplyMessage(null);
+                }
+              }}
+            >
+              <Ionicons 
+                name="close" 
+                size={16} 
+                color={colors.textTertiary} 
+              />
+              <Text style={styles.cancelActionText}>
+                {editMessage ? 'Cancel Edit' : 'Cancel Reply'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
-      {/* Reply Preview */}
-      {replyMessage && renderReplyPreview()}
+        {/* Reply Preview */}
+        {replyMessage && renderReplyPreview()}
 
-      {/* Message Input with Enhanced Styling */}
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-        style={[
-          styles.inputContainerWrapper,
-          // Add margin bottom when keyboard is visible (for Android)
-          Platform.OS === 'android' && isKeyboardVisible && { marginBottom: keyboardHeight }
-        ]}
-      >
+        {/* Message Input - FIXED: Now stays above keyboard on Android */}
         <MessageInput
           newMessage={newMessage}
           setNewMessage={setNewMessage}
           sending={sending}
           onSendMessage={handleSendMessage}
-          onAttachFile={handleAttachFile}
+          onAttachFile={() => {
+            // Handle attach file
+          }}
           isReplying={!!replyMessage}
           isEditing={!!editMessage}
-          onTypingStart={handleTypingStart} // Add this
-          onTypingStop={handleTypingStop}   // Add this
+          onCancelEdit={() => {
+            setEditMessage(null);
+            setNewMessage('');
+          }}
+          onCancelReply={() => setReplyMessage(null)}
+          onTypingStart={handleTypingStartLocal}
+          onTypingStop={handleTypingStopLocal}
         />
       </KeyboardAvoidingView>
 
       {/* Modals */}
-      {renderOptionsModal()}
       <CallInvitationModal />
-      {/* {isInCall && <VideoCallScreen />} */}
-    </View>
+    </SafeAreaView>
+    </PaperProvider>
   );
 }
 
 const createStyles = (colors: any, isDark: boolean, keyboardHeight: number) => StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  keyboardAvoidingView: {
+    flex: 1,
   },
   loadingContainer: {
     flex: 1,
@@ -1054,7 +930,7 @@ const createStyles = (colors: any, isDark: boolean, keyboardHeight: number) => S
   },
   headerActionButton: {
     padding: 8,
-    marginLeft: 4,
+    marginLeft: 8,
   },
   messagesList: {
     flex: 1,
@@ -1063,10 +939,7 @@ const createStyles = (colors: any, isDark: boolean, keyboardHeight: number) => S
   messagesContent: {
     paddingVertical: 16,
     paddingHorizontal: 12,
-    paddingBottom: 120, // Default padding
-  },
-  messagesContentWithKeyboard: {
-    paddingBottom: 200, // Extra padding when keyboard is visible
+    paddingBottom: Platform.OS === 'ios' ? 100 : 80,
   },
   dateSeparatorContainer: {
     flexDirection: 'row',
@@ -1093,7 +966,6 @@ const createStyles = (colors: any, isDark: boolean, keyboardHeight: number) => S
   },
   scrollToBottomButton: {
     position: 'absolute',
-    bottom: 110,
     right: 20,
     borderRadius: 25,
     overflow: 'hidden',
@@ -1112,42 +984,6 @@ const createStyles = (colors: any, isDark: boolean, keyboardHeight: number) => S
     borderRadius: 25,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  typingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    marginBottom: 8,
-  },
-  typingBubble: {
-    flexDirection: 'row',
-    backgroundColor: colors.otherUserBubble,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 20,
-    borderBottomLeftRadius: 6,
-    marginRight: 8,
-  },
-  typingDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.textTertiary,
-    marginHorizontal: 2,
-  },
-  typingText: {
-    color: colors.textTertiary,
-    fontSize: 12,
-  },
-  inputContainerWrapper: {
-    backgroundColor: colors.backgroundSecondary,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    paddingBottom: Platform.select({
-      ios: 10,
-      android: 0,
-    }),
   },
   cancelActionsContainer: {
     flexDirection: 'row',
@@ -1206,59 +1042,6 @@ const createStyles = (colors: any, isDark: boolean, keyboardHeight: number) => S
   replyCancelButton: {
     padding: 4,
   },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalBlur: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 20,
-    maxHeight: height * 0.6,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: colors.textPrimary,
-  },
-  closeButton: {
-    padding: 4,
-  },
-  optionsGrid: {
-    flexDirection: 'row',
-    paddingVertical: 8,
-  },
-  optionItem: {
-    alignItems: 'center',
-    marginHorizontal: 12,
-    width: 80,
-  },
-  optionIcon: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  optionText: {
-    color: colors.textPrimary,
-    fontSize: 12,
-    fontWeight: '500',
-    textAlign: 'center',
-  },
   loadingMoreContainer: {
     padding: 20,
     alignItems: 'center',
@@ -1269,5 +1052,9 @@ const createStyles = (colors: any, isDark: boolean, keyboardHeight: number) => S
   loadingMoreText: {
     color: colors.textTertiary,
     fontSize: 14,
+  },
+  menuContent: {
+    backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
+    borderRadius: 12,
   },
 });

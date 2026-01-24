@@ -1,156 +1,139 @@
-// Create src/hooks/useAutoSchedule.ts
+// src/hooks/useAutoSchedule.ts
 import { useState, useCallback } from 'react';
 import { autoSchedulingService } from '@/services/autoSchedulingService';
-import { AutoScheduleRequest, AutoScheduleResponse, AutoScheduleHistory } from '@/app/types/auto-scheduling.types';
-import { useAuth } from '@/contexts/AuthContext';
+import { 
+  AutoScheduleRequest, 
+  AutoScheduleResponse, 
+  ScheduleAlgorithm 
+} from '@/app/types/auto-scheduling.types';
 
-export function useAutoSchedule() {
+interface AlgorithmInfo {
+  value: ScheduleAlgorithm;
+  name: string;
+  description: string;
+  best_for: string[];
+}
+
+interface PeriodOption {
+  value: string;
+  name: string;
+  description: string;
+}
+
+export const useAutoSchedule = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [generatedSchedule, setGeneratedSchedule] = useState<AutoScheduleResponse | null>(null);
-  const [history, setHistory] = useState<AutoScheduleHistory[]>([]);
-  const [algorithms, setAlgorithms] = useState<Array<{value: string, label: string, description: string}>>([]);
-  const { user } = useAuth();
+  const [algorithms, setAlgorithms] = useState<AlgorithmInfo[]>([]);
+  const [periods, setPeriods] = useState<PeriodOption[]>([]);
 
-  /**
-   * Generate a schedule using algorithms
-   */
-  const generateSchedule = useCallback(async (request: AutoScheduleRequest): Promise<AutoScheduleResponse> => {
+  const generateSchedule = useCallback(async (data: AutoScheduleRequest): Promise<AutoScheduleResponse> => {
     setLoading(true);
     setError(null);
     
     try {
-      const response = await autoSchedulingService.generateSchedule(request);
-      setGeneratedSchedule(response);
-      return response;
+      const result = await autoSchedulingService.generateSchedule(data);
+      return result;
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message || 'Failed to generate schedule');
       throw err;
     } finally {
       setLoading(false);
     }
   }, []);
 
-  /**
-   * Preview a schedule without creating shifts
-   */
-  const previewSchedule = useCallback(async (request: Omit<AutoScheduleRequest, 'auto_create_shifts'>): Promise<AutoScheduleResponse> => {
+  const previewSchedule = useCallback(async (data: Omit<AutoScheduleRequest, 'auto_create_shifts'>): Promise<AutoScheduleResponse> => {
     setLoading(true);
     setError(null);
     
     try {
-      const response = await autoSchedulingService.previewSchedule(request);
-      setGeneratedSchedule(response);
-      return response;
+      const result = await autoSchedulingService.previewSchedule(data);
+      return result;
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message || 'Failed to preview schedule');
       throw err;
     } finally {
       setLoading(false);
     }
   }, []);
 
-  /**
-   * Fill open shifts only
-   */
-  const fillOpenShifts = useCallback(async (): Promise<AutoScheduleResponse> => {
+  const fillOpenShifts = useCallback(async (period?: string): Promise<AutoScheduleResponse> => {
     setLoading(true);
     setError(null);
     
     try {
-      const response = await autoSchedulingService.fillOpenShifts();
-      return response;
+      const requestData: AutoScheduleRequest = {
+        period: (period as any) || 'this_week',
+        algorithm: 'balanced',
+        auto_create_shifts: true,
+      };
+      
+      const result = await autoSchedulingService.generateSchedule(requestData);
+      return result;
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message || 'Failed to fill open shifts');
       throw err;
     } finally {
       setLoading(false);
     }
   }, []);
 
-  /**
-   * Fetch schedule history
-   */
-  const fetchHistory = useCallback(async (limit: number = 10, page: number = 1) => {
-    if (!user?.company_id) return;
-    
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const response = await autoSchedulingService.getHistory(limit, page);
-      setHistory(response.data);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [user?.company_id]);
-
-  /**
-   * Fetch available algorithms
-   */
   const fetchAlgorithms = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    
     try {
-      const algorithmsData = await autoSchedulingService.getAlgorithms();
-      setAlgorithms(algorithmsData);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      // Simple algorithms for frontend
+      const algorithms: AlgorithmInfo[] = [
+        {
+          value: 'simple',
+          name: 'Simple Assignment',
+          description: 'Quickly fill shifts with first available staff',
+          best_for: ['Quick schedules', 'Basic coverage needs'],
+        },
+        {
+          value: 'balanced',
+          name: 'Balanced Workload',
+          description: 'Distribute shifts fairly among all staff',
+          best_for: ['Fair schedules', 'Team morale', 'Long-term planning'],
+        },
+      ];
 
-  /**
-   * Get available staff for a time slot
-   */
-  const getAvailableStaff = useCallback(async (roleId: string, startTime: string, endTime: string) => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      return await autoSchedulingService.getAvailableStaff(roleId, startTime, endTime);
-    } catch (err: any) {
-      setError(err.message);
-      return [];
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      const periods: PeriodOption[] = [
+        { value: 'today', name: 'Today', description: 'Schedule for today only' },
+        { value: 'tomorrow', name: 'Tomorrow', description: 'Schedule for tomorrow only' },
+        { value: 'this_week', name: 'This Week', description: 'Schedule for Monday to Sunday' },
+        { value: 'this_month', name: 'This Month', description: 'Schedule for the current month' },
+        { value: 'custom', name: 'Custom Range', description: 'Select specific dates' },
+      ];
 
-  /**
-   * Clear generated schedule
-   */
-  const clearGeneratedSchedule = useCallback(() => {
-    setGeneratedSchedule(null);
-    setError(null);
+      setAlgorithms(algorithms);
+      setPeriods(periods);
+    } catch (err: any) {
+      console.error('Error fetching algorithms:', err);
+      // Fallback to default algorithms
+      const defaultAlgorithms: AlgorithmInfo[] = [
+        {
+          value: 'simple',
+          name: 'Simple Assignment',
+          description: 'Quickly fill shifts with first available staff',
+          best_for: ['Quick schedules', 'Basic coverage needs'],
+        },
+        {
+          value: 'balanced',
+          name: 'Balanced Workload',
+          description: 'Distribute shifts fairly among all staff',
+          best_for: ['Fair schedules', 'Team morale', 'Long-term planning'],
+        },
+      ];
+      setAlgorithms(defaultAlgorithms);
+    }
   }, []);
 
   return {
-    // State
-    loading,
-    error,
-    generatedSchedule,
-    history,
-    algorithms,
-    
-    // Actions
     generateSchedule,
     previewSchedule,
     fillOpenShifts,
-    fetchHistory,
+    loading,
+    error,
     fetchAlgorithms,
-    getAvailableStaff,
-    clearGeneratedSchedule,
-    
-    // Formatting helpers
-    formatDate: autoSchedulingService.formatDate,
-    formatTime: autoSchedulingService.formatTime,
-    calculateDuration: autoSchedulingService.calculateDuration,
-    getRoleColor: autoSchedulingService.getRoleColor,
-    formatAlgorithmName: autoSchedulingService.formatAlgorithmName,
+    algorithms,
+    periods,
   };
-}
+};

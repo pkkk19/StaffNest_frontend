@@ -53,7 +53,7 @@ export function useRotaData(filters: ShiftFilters = {}) {
 
     // Create a signature for this fetch to prevent duplicate calls
     const fetchSignature = JSON.stringify(apiParams);
-    if (lastFetchRef.current === fetchSignature && shifts.length > 0) {
+    if (lastFetchRef.current === fetchSignature) {
       return;
     }
 

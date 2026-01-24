@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, StyleSheet, TextInput, Platform, TouchableOpacity, ActivityIndicator, RefreshControl, Alert } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TextInput, Platform, TouchableOpacity, ActivityIndicator, RefreshControl, Alert, Image } from 'react-native';
 import { Search, Plus, User, Phone, Mail, Users, Building, AlertCircle } from 'lucide-react-native';
 import { useState, useEffect } from 'react';
 import { router } from 'expo-router';
@@ -331,9 +331,16 @@ export default function Staff() {
                   style={styles.staffCard}
                   onPress={() => router.push(`/staff-details?id=${staff._id}`)}
                 >
-                  <View style={styles.avatarContainer}>
-                    <Text style={styles.avatarText}>{getInitials(staff.first_name, staff.last_name)}</Text>
-                  </View>
+                  {staff.profile_picture_url ? (
+                    <Image 
+                      source={{ uri: staff.profile_picture_url }} 
+                      style={styles.profileImage}
+                    />
+                  ) : (
+                    <View style={styles.avatarContainer}>
+                      <Text style={styles.avatarText}>{getInitials(staff.first_name, staff.last_name)}</Text>
+                    </View>
+                  )}
                   
                   <View style={styles.staffInfo}>
                     <View style={styles.staffHeader}>
@@ -485,6 +492,7 @@ function createStyles(theme: string) {
     },
     staffCard: {
       flexDirection: 'row',
+      alignItems: 'center',
       backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
       padding: 16,
       borderRadius: 12,
@@ -495,6 +503,13 @@ function createStyles(theme: string) {
           elevation: 3,
         },
       }),
+    },
+    profileImage: {
+      width: 60,
+      height: 60,
+      borderRadius: 30,
+      marginRight: 16,
+      backgroundColor: isDark ? '#374151' : '#F3F4F6',
     },
     avatarContainer: {
       width: 60,
@@ -522,7 +537,7 @@ function createStyles(theme: string) {
     staffHeader: {
       flexDirection: 'row',
       justifyContent: 'space-between',
-      alignItems: 'center',
+      alignItems: 'flex-start',
       marginBottom: 4,
     },
     staffName: {
@@ -530,11 +545,13 @@ function createStyles(theme: string) {
       fontWeight: '600',
       color: isDark ? '#F9FAFB' : '#111827',
       flex: 1,
+      marginRight: 8,
     },
     statusBadge: {
       paddingHorizontal: 8,
       paddingVertical: 4,
       borderRadius: 6,
+      alignSelf: 'flex-start',
     },
     statusText: {
       fontSize: 12,
@@ -557,6 +574,7 @@ function createStyles(theme: string) {
     contactText: {
       fontSize: 12,
       color: isDark ? '#9CA3AF' : '#6B7280',
+      flex: 1,
     },
     emptyState: {
       flex: 1,

@@ -1,32 +1,12 @@
-// src/services/autoSchedulingService.ts
+// src/services/autoSchedulingService.ts - UPDATED
 import { autoGenerationAPI } from './api';
 import { 
   AutoScheduleRequest, 
   AutoScheduleResponse, 
   AutoScheduleHistory,
-  ScheduleTemplate,
-  StaffAvailability 
+  ScheduleAlgorithm,
+  SchedulePeriod 
 } from '@/app/types/auto-scheduling.types';
-
-// Define a strict type for valid algorithm values
-type AlgorithmValue = 'fair_share' | 'round_robin' | 'coverage_first' | 'preference_based';
-
-// Create a type that matches what the API expects
-interface APIAutoScheduleRequest {
-  period: 'day' | 'week' | 'month' | 'custom';
-  start_date?: string;
-  end_date?: string;
-  fill_open_only: boolean;
-  consider_preferences: boolean;
-  ensure_legal_compliance: boolean;
-  optimize_existing: boolean;
-  auto_create_shifts: boolean;
-  algorithm?: AlgorithmValue;
-  balance_workload?: boolean;
-  max_shifts_per_staff?: number;
-  excluded_staff_ids?: string[];
-  notes?: string;
-}
 
 class AutoSchedulingService {
   /**
@@ -34,11 +14,14 @@ class AutoSchedulingService {
    */
   async generateSchedule(data: AutoScheduleRequest): Promise<AutoScheduleResponse> {
     try {
-      // Convert the incoming data to match API expectations
-      const apiData: APIAutoScheduleRequest = {
-        ...data,
-        // Ensure algorithm is one of the valid values or undefined
-        algorithm: this.validateAlgorithm(data.algorithm)
+      // Convert our frontend request to backend format
+      const apiData = {
+        period: data.period,
+        start_date: data.start_date,
+        end_date: data.end_date,
+        algorithm: data.algorithm || 'balanced',
+        auto_create_shifts: data.auto_create_shifts || false,
+        notes: data.notes,
       };
       
       const response = await autoGenerationAPI.generateSchedule(apiData);
@@ -54,11 +37,13 @@ class AutoSchedulingService {
    */
   async previewSchedule(data: Omit<AutoScheduleRequest, 'auto_create_shifts'>): Promise<AutoScheduleResponse> {
     try {
-      // Convert the incoming data to match API expectations
-      const apiData: APIAutoScheduleRequest = {
-        ...data as AutoScheduleRequest,
+      const apiData = {
+        period: data.period,
+        start_date: data.start_date,
+        end_date: data.end_date,
+        algorithm: data.algorithm || 'balanced',
         auto_create_shifts: false,
-        algorithm: this.validateAlgorithm(data.algorithm)
+        notes: data.notes,
       };
       
       const response = await autoGenerationAPI.previewSchedule(apiData);
@@ -70,28 +55,11 @@ class AutoSchedulingService {
   }
 
   /**
-   * Validate and convert algorithm string to valid type
-   */
-  private validateAlgorithm(algorithm?: string): AlgorithmValue | undefined {
-    if (!algorithm) return undefined;
-    
-    const validAlgorithms: AlgorithmValue[] = ['fair_share', 'round_robin', 'coverage_first', 'preference_based'];
-    
-    if (validAlgorithms.includes(algorithm as AlgorithmValue)) {
-      return algorithm as AlgorithmValue;
-    }
-    
-    // Default to 'fair_share' if invalid algorithm provided
-    console.warn(`Invalid algorithm "${algorithm}", defaulting to "fair_share"`);
-    return 'fair_share';
-  }
-
-  /**
    * Fill open shifts only
    */
-  async fillOpenShifts(): Promise<AutoScheduleResponse> {
+  async fillOpenShifts(period: string = 'this_week'): Promise<AutoScheduleResponse> {
     try {
-      const response = await autoGenerationAPI.fillOpenShifts();
+      const response = await autoGenerationAPI.fillOpenShifts(period);
       return response.data;
     } catch (error: any) {
       console.error('Error filling open shifts:', error);
@@ -102,7 +70,7 @@ class AutoSchedulingService {
   /**
    * Get available staff for a specific time slot
    */
-  async getAvailableStaff(roleId: string, startTime: string, endTime: string): Promise<StaffAvailability[]> {
+  async getAvailableStaff(roleId: string, startTime: string, endTime: string): Promise<any[]> {
     try {
       const response = await autoGenerationAPI.getAvailableStaff(roleId, startTime, endTime);
       return response.data;
@@ -126,25 +94,47 @@ class AutoSchedulingService {
   }
 
   /**
-   * Get available algorithms
+   * Get available algorithms from backend
    */
-  async getAlgorithms(): Promise<Array<{value: AlgorithmValue, label: string, description: string}>> {
+  async getAlgorithms(): Promise<Array<{value: string; name: string; description: string}>> {
     try {
       const response = await autoGenerationAPI.getAlgorithms();
-      
-      // Filter and validate the algorithms from the API
-      const validAlgorithms: AlgorithmValue[] = ['fair_share', 'round_robin', 'coverage_first', 'preference_based'];
-      const algorithms = response.data.algorithms || [];
-      
-      return algorithms
-        .filter((algo: any) => validAlgorithms.includes(algo.value))
-        .map((algo: any) => ({
-          ...algo,
-          value: algo.value as AlgorithmValue
-        }));
+      return response.data.algorithms || [];
     } catch (error: any) {
       console.error('Error fetching algorithms:', error);
-      return [];
+      // Return default algorithms if API fails
+      return [
+        {
+          value: 'simple',
+          name: 'Simple Assignment',
+          description: 'Quickly fill shifts with first available staff',
+        },
+        {
+          value: 'balanced',
+          name: 'Balanced Workload',
+          description: 'Distribute shifts fairly among all staff',
+        },
+      ];
+    }
+  }
+
+  /**
+   * Get period options
+   */
+  async getPeriodOptions(): Promise<Array<{value: string; name: string; description: string}>> {
+    try {
+      const response = await autoGenerationAPI.getPeriodOptions();
+      return response.data.periods || [];
+    } catch (error: any) {
+      console.error('Error fetching period options:', error);
+      // Return default periods
+      return [
+        { value: 'today', name: 'Today', description: 'Schedule for today only' },
+        { value: 'tomorrow', name: 'Tomorrow', description: 'Schedule for tomorrow only' },
+        { value: 'this_week', name: 'This Week', description: 'Schedule for Monday to Sunday' },
+        { value: 'this_month', name: 'This Month', description: 'Schedule for the current month' },
+        { value: 'custom', name: 'Custom Range', description: 'Select specific dates' },
+      ];
     }
   }
 
@@ -156,7 +146,7 @@ class AutoSchedulingService {
     return d.toLocaleDateString('en-US', {
       weekday: 'short',
       month: 'short',
-      day: 'numeric'
+      day: 'numeric',
     });
   }
 
@@ -167,7 +157,21 @@ class AutoSchedulingService {
     const d = new Date(date);
     return d.toLocaleTimeString('en-US', {
       hour: '2-digit',
-      minute: '2-digit'
+      minute: '2-digit',
+    });
+  }
+
+  /**
+   * Format date and time together
+   */
+  formatDateTime(date: string | Date): string {
+    const d = new Date(date);
+    return d.toLocaleString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
     });
   }
 
@@ -177,7 +181,8 @@ class AutoSchedulingService {
   calculateDuration(start: string, end: string): number {
     const startTime = new Date(start).getTime();
     const endTime = new Date(end).getTime();
-    return (endTime - startTime) / (1000 * 60 * 60);
+    const hours = (endTime - startTime) / (1000 * 60 * 60);
+    return Math.round(hours * 10) / 10; // Round to 1 decimal
   }
 
   /**
@@ -186,7 +191,7 @@ class AutoSchedulingService {
   getRoleColor(roleId: string): string {
     const colors = [
       '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6',
-      '#EC4899', '#06B6D4', '#84CC16', '#F97316', '#6366F1'
+      '#EC4899', '#06B6D4', '#84CC16', '#F97316', '#6366F1',
     ];
     const hash = roleId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
     return colors[hash % colors.length];
@@ -197,12 +202,32 @@ class AutoSchedulingService {
    */
   formatAlgorithmName(algorithm: string): string {
     const names: Record<string, string> = {
-      'round_robin': 'Round Robin',
-      'fair_share': 'Fair Share',
-      'coverage_first': 'Coverage First',
-      'preference_based': 'Preference Based'
+      'simple': 'Simple Assignment',
+      'balanced': 'Balanced Workload',
     };
     return names[algorithm] || algorithm;
+  }
+
+  /**
+   * Format period name for display
+   */
+  formatPeriodName(period: string): string {
+    const names: Record<string, string> = {
+      'today': 'Today',
+      'tomorrow': 'Tomorrow',
+      'this_week': 'This Week',
+      'this_month': 'This Month',
+      'custom': 'Custom Range',
+    };
+    return names[period] || period;
+  }
+
+  /**
+   * Calculate coverage percentage
+   */
+  calculateCoverage(filledShifts: number, totalShifts: number): number {
+    if (totalShifts === 0) return 100;
+    return Math.round((filledShifts / totalShifts) * 100);
   }
 }
 
