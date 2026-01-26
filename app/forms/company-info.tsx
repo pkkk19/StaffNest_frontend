@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Router } from 'expo-router';
 import { View, ScrollView, Modal, Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
@@ -7,6 +7,7 @@ import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { companiesAPI } from '@/services/api';
+import { useFocusEffect } from 'expo-router';
 
 // Import components
 import CompanyHeader from './company/CompanyHeader';
@@ -71,10 +72,18 @@ export default function CompanyInfo() {
     permission: false
   });
 
-  useEffect(() => {
+  // Refresh data when screen comes into focus
+useFocusEffect(
+  useCallback(() => {
     fetchCompanyData();
     checkLocationPermission();
-  }, []);
+  }, [])
+);
+
+// Keep location permission check on mount
+useEffect(() => {
+  checkLocationPermission();
+}, []);
 
   const fetchCompanyData = async () => {
     try {

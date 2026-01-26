@@ -16,6 +16,7 @@ import {
   ActivityIndicator,
   PanResponder,
   StatusBar,
+  KeyboardAvoidingView,
 } from 'react-native';
 import MapView, { Marker, Circle, PROVIDER_GOOGLE } from 'react-native-maps';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -91,94 +92,121 @@ export default function LocationSetupPage() {
   const [showPredictions, setShowPredictions] = useState(false);
 
   // Animation values
-  const bottomSheetTranslateY = useRef(new Animated.Value(height * 0.4)).current; // Start partially visible
-  const bottomSheetOpacity = useRef(new Animated.Value(1)).current; // Always visible
+  const bottomSheetTranslateY = useRef(new Animated.Value(height * 0.4)).current;
+  const bottomSheetOpacity = useRef(new Animated.Value(1)).current;
   const headerOpacity = useRef(new Animated.Value(1)).current;
-  const searchBarScale = useRef(new Animated.Value(1)).current;
-  const searchBarMarginTop = useRef(new Animated.Value(0)).current;
   
   // State
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [bottomSheetState, setBottomSheetState] = useState<'collapsed' | 'expanded' | 'form-focus'>('collapsed');
   
-  // Snap points - bottom sheet never goes below bottom of screen
+  // Snap points
   const SNAP_POINTS = {
-    EXPANDED: 0, // Fully expanded at bottom
-    FORM_FOCUS: Platform.OS === 'android' ? height * 0.40 : 0, // When form input is focused
+    EXPANDED: 0, // Fully expanded
+    FORM_FOCUS: Platform.OS === 'ios' ? 0 : height * 0.3, // When form input is focused
     COLLAPSED: height * 0.4, // 40% visible (collapsed state)
   };
   
-  // Current snap position
   const currentSnap = useRef(SNAP_POINTS.COLLAPSED);
 
   const mapRef = useRef<MapView>(null);
   const searchInputRef = useRef<TextInput>(null);
   const bottomSheetScrollRef = useRef<ScrollView>(null);
+  const formInputRefs = useRef<(TextInput | null)[]>([]);
   const GOOGLE_API_KEY = 'AIzaSyAAklfZoBe3kXwI4Vc4PRcrmAIYAi7wp3M';
 
   // Track if we're dragging
   const isDragging = useRef(false);
+  const panStartY = useRef(0);
+
+  // Get current animated value safely
+  const getCurrentTranslateY = () => {
+    const animatedValue = bottomSheetTranslateY as any;
+    // Use __getValue for older versions or getValue() for newer
+    if (animatedValue.__getValue) {
+      return animatedValue.__getValue();
+    } else {
+      return animatedValue._value;
+    }
+  };
 
   // PanResponder for bottom sheet
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: (_, gestureState) => {
-        // Only capture vertical movements
+        // Only capture vertical movements when not in form-focus state
+        if (bottomSheetState === 'form-focus') return false;
         return Math.abs(gestureState.dy) > Math.abs(gestureState.dx) && Math.abs(gestureState.dy) > 5;
       },
-      onPanResponderGrant: () => {
+      onPanResponderGrant: (_, gestureState) => {
+        if (isKeyboardVisible) {
+          Keyboard.dismiss();
+        }
         isDragging.current = true;
+        panStartY.current = gestureState.y0;
         bottomSheetTranslateY.stopAnimation();
       },
       onPanResponderMove: (_, gestureState) => {
-        const newTranslateY = Math.max(
+        if (!isDragging.current) return;
+        
+        const deltaY = gestureState.moveY - panStartY.current;
+        let newTranslateY = currentSnap.current + deltaY;
+        
+        // Constrain movement
+        newTranslateY = Math.max(
           SNAP_POINTS.EXPANDED,
-          Math.min(SNAP_POINTS.COLLAPSED, currentSnap.current + gestureState.dy)
+          Math.min(SNAP_POINTS.COLLAPSED, newTranslateY)
         );
+        
         bottomSheetTranslateY.setValue(newTranslateY);
       },
       onPanResponderRelease: (_, gestureState) => {
         isDragging.current = false;
         const velocity = gestureState.vy;
-        const currentY = (bottomSheetTranslateY as any)._value || SNAP_POINTS.COLLAPSED;
+        const currentY = getCurrentTranslateY();
         
-        // Determine target snap point based on velocity and position
+        // Determine target snap point
         let targetSnap: number;
+        let targetState: 'collapsed' | 'expanded' | 'form-focus';
         
-        if (velocity > 0.8) {
-          // Fast swipe down - collapse
+        if (velocity > 0.5) {
+          // Swipe down - collapse
           targetSnap = SNAP_POINTS.COLLAPSED;
-        } else if (velocity < -0.8) {
-          // Fast swipe up - expand
+          targetState = 'collapsed';
+        } else if (velocity < -0.5) {
+          // Swipe up - expand
           targetSnap = SNAP_POINTS.EXPANDED;
+          targetState = 'expanded';
         } else {
           // Determine based on current position
-          const threshold = height * 0.2; // 20% from top
+          const threshold = height * 0.2;
           if (currentY > threshold) {
-            // More than 20% down, collapse
             targetSnap = SNAP_POINTS.COLLAPSED;
+            targetState = 'collapsed';
           } else {
-            // Less than 20% down, expand
             targetSnap = SNAP_POINTS.EXPANDED;
+            targetState = 'expanded';
           }
         }
         
         currentSnap.current = targetSnap;
+        setBottomSheetState(targetState);
+        
         Animated.spring(bottomSheetTranslateY, {
           toValue: targetSnap,
           useNativeDriver: true,
           tension: 50,
-          friction: 10,
+          friction: 12,
           velocity: velocity,
         }).start();
       },
       onPanResponderTerminate: () => {
         isDragging.current = false;
-        // Snap to current position
-        const currentY = (bottomSheetTranslateY as any)._value || SNAP_POINTS.COLLAPSED;
-        currentSnap.current = currentY;
+        // Return to current snap
+        bottomSheetTranslateY.setValue(currentSnap.current);
       },
     })
   ).current;
@@ -189,53 +217,72 @@ export default function LocationSetupPage() {
     const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
 
     const keyboardShowListener = Keyboard.addListener(showEvent, (e) => {
-        const kbHeight = e.endCoordinates?.height || 300;
-        setKeyboardHeight(kbHeight);
-        setIsKeyboardVisible(true);
-
-        if (keyboardSource.current === 'search') {
-            // 🔽 Search → hide bottom sheet
-            Animated.parallel([
-            Animated.timing(bottomSheetTranslateY, {
-                toValue: height,
-                duration: 200,
-                useNativeDriver: true,
-            }),
-            Animated.timing(bottomSheetOpacity, {
-                toValue: 0,
-                duration: 200,
-                useNativeDriver: true,
-            }),
-            ]).start();
-        }
+      const kbHeight = e.endCoordinates?.height || 300;
+      setKeyboardHeight(kbHeight);
+      setIsKeyboardVisible(true);
+      
+      if (keyboardSource.current === 'search') {
+        // When search is focused, hide bottom sheet completely
+        Animated.parallel([
+          Animated.timing(bottomSheetTranslateY, {
+            toValue: height,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+          Animated.timing(bottomSheetOpacity, {
+            toValue: 0,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+        ]).start();
+        setBottomSheetState('form-focus');
+      } else if (keyboardSource.current === 'form') {
+        // When form input is focused, adjust bottom sheet position
+        setBottomSheetState('form-focus');
+        Animated.spring(bottomSheetTranslateY, {
+          toValue: SNAP_POINTS.FORM_FOCUS,
+          useNativeDriver: true,
+          tension: 60,
+          friction: 12,
+        }).start(() => {
+          currentSnap.current = SNAP_POINTS.FORM_FOCUS;
         });
+      }
+    });
 
-
-const keyboardHideListener = Keyboard.addListener(hideEvent, () => {
-  setIsKeyboardVisible(false);
-  setKeyboardHeight(0);
-
-  Animated.parallel([
-    Animated.spring(bottomSheetTranslateY, {
-      toValue: currentSnap.current,
-      useNativeDriver: true,
-      tension: 50,
-      friction: 10,
-    }),
-    Animated.timing(bottomSheetOpacity, {
-      toValue: 1,
-      duration: 200,
-      useNativeDriver: true,
-    }),
-  ]).start();
-});
-
+    const keyboardHideListener = Keyboard.addListener(hideEvent, () => {
+      setIsKeyboardVisible(false);
+      setKeyboardHeight(0);
+      
+      // Return to appropriate state
+      if (bottomSheetState === 'form-focus') {
+        setBottomSheetState('expanded');
+        Animated.spring(bottomSheetTranslateY, {
+          toValue: SNAP_POINTS.EXPANDED,
+          useNativeDriver: true,
+          tension: 50,
+          friction: 12,
+        }).start(() => {
+          currentSnap.current = SNAP_POINTS.EXPANDED;
+        });
+      } else {
+        // Maintain current position
+        bottomSheetTranslateY.setValue(currentSnap.current);
+      }
+      
+      // Always show bottom sheet when keyboard hides
+      Animated.timing(bottomSheetOpacity, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
+    });
 
     return () => {
       keyboardShowListener.remove();
       keyboardHideListener.remove();
     };
-  }, [isSearchFocused]);
+  }, [bottomSheetState]);
 
   // Initialize component
   useEffect(() => {
@@ -247,30 +294,41 @@ const keyboardHideListener = Keyboard.addListener(hideEvent, () => {
     // Start with bottom sheet partially visible
     bottomSheetTranslateY.setValue(SNAP_POINTS.COLLAPSED);
     currentSnap.current = SNAP_POINTS.COLLAPSED;
+    setBottomSheetState('collapsed');
   }, []);
 
   const expandBottomSheet = () => {
+    if (isKeyboardVisible) {
+      Keyboard.dismiss();
+    }
+    
+    setBottomSheetState('expanded');
     currentSnap.current = SNAP_POINTS.EXPANDED;
     Animated.spring(bottomSheetTranslateY, {
       toValue: SNAP_POINTS.EXPANDED,
       useNativeDriver: true,
       tension: 50,
-      friction: 10,
+      friction: 12,
     }).start();
   };
 
   const collapseBottomSheet = () => {
+    if (isKeyboardVisible) {
+      Keyboard.dismiss();
+    }
+    
+    setBottomSheetState('collapsed');
     currentSnap.current = SNAP_POINTS.COLLAPSED;
     Animated.spring(bottomSheetTranslateY, {
       toValue: SNAP_POINTS.COLLAPSED,
       useNativeDriver: true,
       tension: 50,
-      friction: 10,
+      friction: 12,
     }).start();
   };
 
   const toggleBottomSheet = () => {
-    if (currentSnap.current === SNAP_POINTS.EXPANDED) {
+    if (bottomSheetState === 'expanded') {
       collapseBottomSheet();
     } else {
       expandBottomSheet();
@@ -372,11 +430,11 @@ const keyboardHideListener = Keyboard.addListener(hideEvent, () => {
 
       setIsSearching(true);
       try {
-        const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(
+        const autocompleteUrl = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(
           query
-        )}&key=${GOOGLE_API_KEY}&language=en&components=country:uk`;
+        )}&key=${GOOGLE_API_KEY}&language=en&types=geocode`;
         
-        const response = await fetch(url);
+        const response = await fetch(autocompleteUrl);
         const data = await response.json();
         
         if (data.status === 'OK' && Array.isArray(data.predictions)) {
@@ -420,6 +478,11 @@ const keyboardHideListener = Keyboard.addListener(hideEvent, () => {
         setSearchQuery(newAddress);
         setShowPredictions(false);
         Keyboard.dismiss();
+        
+        if (isKeyboardVisible) {
+          // If keyboard is open, collapse the bottom sheet
+          collapseBottomSheet();
+        }
 
         const newRegion = {
           ...newCoordinate,
@@ -503,7 +566,11 @@ const keyboardHideListener = Keyboard.addListener(hideEvent, () => {
   const styles = createStyles(theme);
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView 
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+    >
       {/* Status Bar */}
       <StatusBar barStyle="dark-content" backgroundColor="rgba(255, 255, 255, 0.95)" />
       
@@ -538,17 +605,11 @@ const keyboardHideListener = Keyboard.addListener(hideEvent, () => {
         )}
       </MapView>
 
-      {/* Header Container - Fixed at top with Android margin */}
+      {/* Header Container */}
       <Animated.View 
         style={[
           styles.headerContainer,
-          {
-            transform: [
-              { scale: searchBarScale },
-              { translateY: searchBarMarginTop },
-            ],
-            opacity: headerOpacity,
-          }
+          { opacity: headerOpacity }
         ]}
       >
         <SafeAreaView style={styles.safeAreaHeader}>
@@ -593,13 +654,13 @@ const keyboardHideListener = Keyboard.addListener(hideEvent, () => {
                   }
                 }}
                 onFocus={() => {
-                    keyboardSource.current = 'search';
-                    setIsSearchFocused(true);
-                    setShowPredictions(true);
+                  keyboardSource.current = 'search';
+                  setIsSearchFocused(true);
+                  setShowPredictions(true);
                 }}
                 onBlur={() => {
-                    setIsSearchFocused(false);
-                    keyboardSource.current = null;
+                  setIsSearchFocused(false);
+                  keyboardSource.current = null;
                 }}
                 returnKeyType="search"
               />
@@ -636,7 +697,7 @@ const keyboardHideListener = Keyboard.addListener(hideEvent, () => {
         </SafeAreaView>
       </Animated.View>
 
-      {/* Bottom Sheet - Always visible, follows finger */}
+      {/* Bottom Sheet */}
       <Animated.View 
         style={[
           styles.bottomSheet,
@@ -646,12 +707,11 @@ const keyboardHideListener = Keyboard.addListener(hideEvent, () => {
           }
         ]}
       >
-        {/* Invisible drag area that covers the entire top portion */}
+        {/* Drag Handle Area */}
         <View 
-          style={styles.dragArea}
+          style={styles.dragHandle}
           {...panResponder.panHandlers}
         >
-          {/* Simple handle bar */}
           <View style={styles.handleBar} />
         </View>
 
@@ -662,6 +722,12 @@ const keyboardHideListener = Keyboard.addListener(hideEvent, () => {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
+          scrollEnabled={!isDragging.current}
+          onTouchStart={() => {
+            if (isKeyboardVisible) {
+              Keyboard.dismiss();
+            }
+          }}
         >
           <View style={styles.detailsCard}>
             <Text style={styles.sectionTitle}>Location Details</Text>
@@ -670,26 +736,20 @@ const keyboardHideListener = Keyboard.addListener(hideEvent, () => {
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Location Name *</Text>
               <TextInput
+                ref={(ref) => { formInputRefs.current[0] = ref; }}
                 style={styles.input}
                 value={locationData.name}
                 placeholder="e.g., Main Office, Warehouse"
                 placeholderTextColor="#9CA3AF"
                 onChangeText={(text) => 
-                    setLocationData(prev => ({ ...prev, name: text }))
+                  setLocationData(prev => ({ ...prev, name: text }))
                 }
                 onFocus={() => {
-                    keyboardSource.current = 'form';
-                    currentSnap.current = SNAP_POINTS.FORM_FOCUS;
-
-                    Animated.spring(bottomSheetTranslateY, {
-                        toValue: SNAP_POINTS.FORM_FOCUS,
-                        useNativeDriver: true,
-                        tension: 60,
-                        friction: 12,
-                    }).start();
+                  keyboardSource.current = 'form';
+                  expandBottomSheet();
                 }}
                 onBlur={() => {
-                    keyboardSource.current = null;
+                  keyboardSource.current = null;
                 }}
               />
             </View>
@@ -758,10 +818,13 @@ const keyboardHideListener = Keyboard.addListener(hideEvent, () => {
                 {isSearching ? 'Getting location...' : 'Use Current Location'}
               </Text>
             </TouchableOpacity>
+
+            {/* Extra padding for keyboard */}
+            <View style={{ height: keyboardHeight > 0 ? keyboardHeight * 0.5 : 0 }} />
           </View>
         </ScrollView>
       </Animated.View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -897,7 +960,7 @@ const createStyles = (theme: string) => StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    height: height * 0.7, // 70% of screen height
+    height: height * 0.7,
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
@@ -906,8 +969,9 @@ const createStyles = (theme: string) => StyleSheet.create({
     shadowOffset: { width: 0, height: -2 },
     shadowOpacity: 0.1,
     shadowRadius: 16,
+    zIndex: 10,
   },
-  dragArea: {
+  dragHandle: {
     height: 40,
     justifyContent: 'center',
     alignItems: 'center',
@@ -926,7 +990,7 @@ const createStyles = (theme: string) => StyleSheet.create({
   },
   detailsCard: {
     paddingHorizontal: 24,
-    paddingBottom: Platform.OS === 'ios' ? 34 : 24,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 14,
     paddingTop: 8,
   },
   sectionTitle: {

@@ -1,5 +1,5 @@
 import { View, Text, StyleSheet, ScrollView, Alert, ActivityIndicator, RefreshControl, TouchableOpacity } from 'react-native';
-import { Link } from 'expo-router';
+import { Link, router } from 'expo-router'; // Import router from expo-router
 import { Clock, Users, UserCheck, Calendar, Eye, EyeOff, AlertCircle, Edit2, Trash2, MoreVertical, Plus, Filter, Cpu, Copy, MapPin, ChevronDown, ChevronUp, Grid, List, Brain, Trash, BarChart3, UserSquare } from 'lucide-react-native';
 import ForceTouchable from '@/components/ForceTouchable';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -17,6 +17,8 @@ import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Shift } from '@/app/types/rota.types';
 import { useOpenShifts } from '@/hooks/useOpenShifts';
 import CreateShiftFromRoleModal from '@/components/rota/CreateShiftFromRoleModal';
+import { rolesAPI } from '@/services/api'; // Add this import
+import { Role } from '@/app/types/roles'; // Add this import
 
 // Define the view modes - removed 'calendar'
 export type ScheduleViewMode = 'list' | 'user-grid';
@@ -53,6 +55,8 @@ export default function RotaScreen() {
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
   const [showAdminActions, setShowAdminActions] = useState(false);
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
+  const [roles, setRoles] = useState<Role[]>([]); // Add state for roles
+  const [loadingRoles, setLoadingRoles] = useState(false); // Add loading state for roles
 
   const {openShifts: availableOpenShifts} = useOpenShifts();
   const openShiftsCount = availableOpenShifts.length;
@@ -76,6 +80,36 @@ export default function RotaScreen() {
   });
 
   const styles = createStyles(theme);
+
+  // Fetch roles when component mounts or when user changes
+  useEffect(() => {
+    if (isAdmin) {
+      fetchRoles();
+    }
+  }, [isAdmin]);
+
+  const fetchRoles = async () => {
+    try {
+      setLoadingRoles(true);
+      const response = await rolesAPI.getRoles();
+      setRoles(response.data || []);
+    } catch (error: any) {
+      console.error('Error fetching roles:', error);
+    } finally {
+      setLoadingRoles(false);
+    }
+  };
+
+  // Function to handle create shift action
+  const handleCreateShiftAction = () => {
+    if (isAdmin && roles.length === 0) {
+      // If admin and no roles exist, navigate to roles page
+      router.push('/pages/roles');
+    } else {
+      // Otherwise, show the normal create shift modal
+      setShowCreateModal(true);
+    }
+  };
 
   const filteredShifts = useMemo(() => {
     let filtered = shifts;
@@ -169,12 +203,15 @@ export default function RotaScreen() {
     setRefreshing(true);
     try {
       await refetch();
+      if (isAdmin) {
+        await fetchRoles();
+      }
     } catch (error) {
       console.error('Refresh failed:', error);
     } finally {
       setRefreshing(false);
     }
-  }, [refetch]);
+  }, [refetch, isAdmin]);
 
   const handleShiftCreated = () => {
     setShowCreateModal(false);
@@ -183,7 +220,12 @@ export default function RotaScreen() {
 
   const handleAddShiftFromWeekView = (date: Date) => {
     setCreateModalDate(date);
-    setShowCreateModal(true);
+    if (isAdmin && roles.length === 0) {
+      // Navigate to roles page if no roles exist
+      router.push('/pages/roles');
+    } else {
+      setShowCreateModal(true);
+    }
   };
 
   const handleShiftUpdated = () => {
@@ -838,7 +880,14 @@ export default function RotaScreen() {
       {isAdmin && (
         <TouchableOpacity 
           style={styles.adminPlusButton}
-          onPress={() => setShowAdminActions(true)}
+          onPress={() => {
+            if (roles.length === 0) {
+              // Navigate to roles page if no roles exist
+              router.push('/pages/roles');
+            } else {
+              setShowAdminActions(true);
+            }
+          }}
         >
           <Plus size={24} color="#FFFFFF" />
         </TouchableOpacity>
@@ -865,7 +914,12 @@ export default function RotaScreen() {
               style={styles.adminActionButton}
               onPress={() => {
                 setShowAdminActions(false);
-                setShowCreateModal(true);
+                if (roles.length === 0) {
+                  // Navigate to roles page if no roles exist
+                  router.push('/pages/roles');
+                } else {
+                  setShowCreateModal(true);
+                }
               }}
             >
               <Plus size={20} color="#10B981" />
@@ -895,12 +949,15 @@ export default function RotaScreen() {
         </View>
       )}
 
-      <CreateShiftFromRoleModal
-        visible={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
-        onSuccess={handleShiftCreated}
-        defaultDate={createModalDate}
-      />
+      {/* Only show CreateShiftFromRoleModal if roles exist */}
+      {roles.length > 0 && (
+        <CreateShiftFromRoleModal
+          visible={showCreateModal}
+          onClose={() => setShowCreateModal(false)}
+          onSuccess={handleShiftCreated}
+          defaultDate={createModalDate}
+        />
+      )}
 
       {selectedShift && (
         <EditShiftModal

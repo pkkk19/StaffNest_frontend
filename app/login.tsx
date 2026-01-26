@@ -1,30 +1,30 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  TextInput, 
-  Alert, 
-  KeyboardAvoidingView, 
+import {
+  View,
+  Text,
+  StyleSheet,
+  TextInput,
+  Alert,
+  KeyboardAvoidingView,
   Platform,
   Image,
   Linking,
   Modal,
   TouchableOpacity,
   ScrollView,
-  ActivityIndicator 
+  ActivityIndicator,
 } from 'react-native';
 import { router } from 'expo-router';
-import { 
-  Mail, 
-  Lock, 
-  Eye, 
-  EyeOff, 
-  ExternalLink, 
-  X, 
+import {
+  Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  ExternalLink,
+  X,
   ArrowLeft,
   Key,
-  Check
+  Check,
 } from 'lucide-react-native';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -42,12 +42,12 @@ export default function Login() {
   const [isLoading, setIsLoading] = useState(false);
   const [showWebsiteModal, setShowWebsiteModal] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false); // Changed from showForgotPasswordModal
-  
+
   const [modalConfig, setModalConfig] = useState({
     title: '',
     message: '',
     url: '',
-    type: '' // 'signup' | 'general'
+    type: '', // 'signup' | 'general'
   });
 
   const styles = createStyles(theme);
@@ -71,9 +71,15 @@ export default function Login() {
       await login(email, password);
       router.replace('/(tabs)');
     } catch (error: any) {
-      if (error.message.includes('undefined') || error.message.includes('null')) {
+      if (
+        error.message.includes('undefined') ||
+        error.message.includes('null')
+      ) {
         Alert.alert(t('error'), t('loginFailedTryAgain'));
-      } else if (error.message.includes('token') || error.response?.status === 401) {
+      } else if (
+        error.message.includes('token') ||
+        error.response?.status === 401
+      ) {
         Alert.alert(t('error'), t('authenticationError'));
       } else {
         Alert.alert(t('error'), error.message || t('loginFailed'));
@@ -89,42 +95,35 @@ export default function Login() {
       if (supported) {
         await Linking.openURL(url);
       } else {
-        Alert.alert(
-          t('error'),
-          t('cannotOpenWebsite'),
-          [
-            { text: t('ok'), style: 'default' }
-          ]
-        );
+        Alert.alert(t('error'), t('cannotOpenWebsite'), [
+          { text: t('ok'), style: 'default' },
+        ]);
       }
     } catch (error) {
-      Alert.alert(
-        t('error'),
-        t('websiteOpenFailed'),
-        [
-          { text: t('ok'), style: 'default' }
-        ]
-      );
+      Alert.alert(t('error'), t('websiteOpenFailed'), [
+        { text: t('ok'), style: 'default' },
+      ]);
     }
   };
 
-  const showWebsiteRedirectModal = (type: 'signup' | 'general', title: string, message: string, url?: string) => {
+  const showWebsiteRedirectModal = (
+    type: 'signup' | 'general',
+    title: string,
+    message: string,
+    url?: string,
+  ) => {
     const config = {
       title,
       message,
-      url: url || 'https://www.hourwize.com',
-      type
+      url: url || 'https://www.hourwize.com/signup',
+      type,
     };
     setModalConfig(config);
     setShowWebsiteModal(true);
   };
 
   const handleSignupRedirect = () => {
-    showWebsiteRedirectModal(
-      'signup',
-      t('signUp'),
-      t('signupRedirectMessage')
-    );
+    showWebsiteRedirectModal('signup', t('signUp'), t('signupRedirectMessage'));
   };
 
   const handleHourwizeLink = () => {
@@ -132,7 +131,7 @@ export default function Login() {
       'general',
       'HourWize Website',
       'Open www.hourwize.com in your browser?',
-      'https://www.hourwize.com'
+      'https://www.hourwize.com',
     );
   };
 
@@ -151,7 +150,7 @@ export default function Login() {
     setShowForgotPassword(false);
     Alert.alert(
       'Success',
-      'Password reset successfully! You can now login with your new password.'
+      'Password reset successfully! You can now login with your new password.',
     );
   };
 
@@ -165,7 +164,7 @@ export default function Login() {
           <View style={styles.modalIconContainer}>
             <ExternalLink size={24} color="#2563EB" />
           </View>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.closeButton}
             onPress={() => handleModalAction('cancel')}
           >
@@ -174,7 +173,7 @@ export default function Login() {
         </View>
 
         <Text style={styles.modalTitle}>{modalConfig.title}</Text>
-        
+
         <Text style={styles.modalMessage}>{modalConfig.message}</Text>
 
         <View style={styles.modalUrlContainer}>
@@ -183,14 +182,14 @@ export default function Login() {
         </View>
 
         <View style={styles.modalButtons}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[styles.modalButton, styles.cancelButton]}
             onPress={() => handleModalAction('cancel')}
           >
             <Text style={styles.cancelButtonText}>{t('cancel')}</Text>
           </TouchableOpacity>
-          
-          <TouchableOpacity 
+
+          <TouchableOpacity
             style={[styles.modalButton, styles.openButton]}
             onPress={() => handleModalAction('open')}
           >
@@ -202,7 +201,8 @@ export default function Login() {
 
         {isSignup && (
           <Text style={styles.modalNote}>
-            After signing up on our website, return here to login with your new account.
+            After signing up on our website, return here to login with your new
+            account.
           </Text>
         )}
       </View>
@@ -210,19 +210,19 @@ export default function Login() {
   };
 
   return (
-    <KeyboardAvoidingView 
-      style={styles.container} 
+    <KeyboardAvoidingView
+      style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <View style={styles.content}>
         <View style={styles.header}>
           {/* Logo Image */}
-          <Image 
+          <Image
             source={require('@/assets/images/icon.png')}
             style={styles.logoImage}
             resizeMode="contain"
           />
-          
+
           {/* App Name */}
           <Text style={styles.logoText}>HourWize</Text>
           <Text style={styles.subtitle}>{t('manageYourWorkforce')}</Text>
@@ -254,7 +254,7 @@ export default function Login() {
               secureTextEntry={!showPassword}
               editable={!isLoading}
             />
-            <ForceTouchable 
+            <ForceTouchable
               onPress={() => setShowPassword(!showPassword)}
               style={styles.eyeIcon}
               disabled={isLoading}
@@ -267,16 +267,19 @@ export default function Login() {
             </ForceTouchable>
           </View>
 
-          <ForceTouchable 
+          {/* <ForceTouchable
             style={styles.forgotPassword}
             onPress={handleForgotPassword}
             disabled={isLoading}
           >
             <Text style={styles.forgotPasswordText}>{t('forgotPassword')}</Text>
-          </ForceTouchable>
+          </ForceTouchable> */}
 
           <ForceTouchable
-            style={[styles.loginButton, isLoading && styles.loginButtonDisabled]}
+            style={[
+              styles.loginButton,
+              isLoading && styles.loginButtonDisabled,
+            ]}
             onPress={handleLogin}
             disabled={isLoading}
           >
@@ -286,11 +289,10 @@ export default function Login() {
           </ForceTouchable>
 
           <View style={styles.signupLink}>
-            <Text style={styles.signupLinkText}>{t('needManagerAccount')} </Text>
-            <ForceTouchable 
-              onPress={handleSignupRedirect}
-              disabled={isLoading}
-            >
+            <Text style={styles.signupLinkText}>
+              {t('needManagerAccount')}{' '}
+            </Text>
+            <ForceTouchable onPress={handleSignupRedirect} disabled={isLoading}>
               <Text style={styles.signupLinkButton}>{t('signUp')}</Text>
             </ForceTouchable>
           </View>
@@ -315,9 +317,7 @@ export default function Login() {
         onRequestClose={() => handleModalAction('cancel')}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            {renderModalContent()}
-          </View>
+          <View style={styles.modalContainer}>{renderModalContent()}</View>
         </View>
       </Modal>
 
@@ -334,7 +334,7 @@ export default function Login() {
 
 function createStyles(theme: string) {
   const isDark = theme === 'dark';
-  
+
   return StyleSheet.create({
     container: {
       flex: 1,
@@ -433,7 +433,9 @@ function createStyles(theme: string) {
       fontWeight: '600',
     },
     accountNoteContainer: {
-      backgroundColor: isDark ? 'rgba(37, 99, 235, 0.1)' : 'rgba(37, 99, 235, 0.08)',
+      backgroundColor: isDark
+        ? 'rgba(37, 99, 235, 0.1)'
+        : 'rgba(37, 99, 235, 0.08)',
       padding: 12,
       borderRadius: 8,
       borderWidth: 1,
@@ -480,7 +482,9 @@ function createStyles(theme: string) {
       width: 48,
       height: 48,
       borderRadius: 24,
-      backgroundColor: isDark ? 'rgba(37, 99, 235, 0.1)' : 'rgba(37, 99, 235, 0.1)',
+      backgroundColor: isDark
+        ? 'rgba(37, 99, 235, 0.1)'
+        : 'rgba(37, 99, 235, 0.1)',
       justifyContent: 'center',
       alignItems: 'center',
     },
@@ -510,7 +514,9 @@ function createStyles(theme: string) {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: isDark ? 'rgba(37, 99, 235, 0.1)' : 'rgba(37, 99, 235, 0.08)',
+      backgroundColor: isDark
+        ? 'rgba(37, 99, 235, 0.1)'
+        : 'rgba(37, 99, 235, 0.08)',
       paddingHorizontal: 16,
       paddingVertical: 12,
       borderRadius: 8,
