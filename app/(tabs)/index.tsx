@@ -12,6 +12,7 @@ import { shiftsAPI, companiesAPI } from '@/services/api';
 import AISearchBar from '@/components/AI/AISearchBar';
 import StoriesCarousel from '@/components/Stories/StoriesCarousel';
 import api from '@/services/api';
+import { notificationService } from '@/services/notificationService';
 
 // Define the Company type based on your API response
 type Company = {
@@ -28,6 +29,7 @@ type Company = {
 
 // Define Notification type
 type Notification = {
+  _id: string;
   id: string;
   title: string;
   body: string;
@@ -55,12 +57,37 @@ export default function Dashboard() {
   const styles = createStyles(theme);
 
   useEffect(() => {
-    if (user && !authLoading) {
-      fetchDashboardData();
-      fetchCompanyData();
-      fetchRecentNotifications();
-    }
-  }, [user, authLoading]);
+  if (user && !authLoading) {
+    fetchDashboardData();
+    fetchCompanyData();
+    fetchRecentNotifications();
+    
+    // Setup notification handlers - ADD THIS
+    const setupNotificationHandlers = async () => {
+      try {
+        // Register for push notifications
+        const token = await notificationService.registerForPushNotifications();
+        if (token && user._id) {
+          await notificationService.registerTokenWithBackend(user._id, token);
+        }
+        
+        // Setup handlers
+        notificationService.setupNotificationHandlers();
+        
+        // Handle initial notification if app was opened from notification
+        notificationService.handleInitialNotification().then(data => {
+          if (data?.deepLink) {
+            console.log('📍 Navigating to deep link:', data.deepLink);
+          }
+        });
+      } catch (error) {
+        console.error('Error setting up notification handlers:', error);
+      }
+    };
+    
+    setupNotificationHandlers();
+  }
+}, [user, authLoading]);
 
   const fetchDashboardData = async () => {
     try {
@@ -130,26 +157,68 @@ export default function Dashboard() {
     }
   };
 
-  const handleNotificationPress = async (notification: Notification) => {
-    try {
-      // Mark as read
-      if (!notification.read) {
-        await api.post(`/notifications/${notification.id}/read`);
+const handleNotificationPress = async (notification: Notification) => {
+  console.log('👆 Handling notification:', {
+    id: notification._id,
+    read: notification.read,
+    title: notification.title
+  });
+  
+  try {
+    // Only mark as read if it's unread
+    if (!notification.read) {
+      try {
+        console.log(`📝 Attempting to mark notification ${notification._id} as read...`);
         
-        // Update local state
-        setNotifications(prev => prev.map(n => 
-          n.id === notification.id ? { ...n, read: true } : n
-        ));
+        // Try direct API call first for reliability
+        const response = await api.post(`/notifications/${notification._id}/read`);
+        console.log('✅ API response:', response.data);
+        
+        if (response.data?.success) {
+          // Update local state
+          setNotifications(prev => prev.map(n => 
+            n._id === notification._id ? { ...n, read: true } : n
+          ));
+          
+          // Update badge count using service
+          const currentCount = await notificationService.getBadgeCountAsync();
+          const newCount = Math.max(0, currentCount - 1);
+          await notificationService.setBadgeCountAsync(newCount);
+          console.log(`✅ Badge updated: ${newCount}`);
+        } else {
+          console.log('❌ API returned success=false:', response.data?.message);
+        }
+      } catch (markAsReadError: any) {
+        console.error('❌ Failed to mark notification as read:', {
+          message: markAsReadError.message,
+          response: markAsReadError.response?.data,
+          status: markAsReadError.response?.status
+        });
       }
-      
-      // Navigate based on notification data
-      if (notification.data?.deepLink) {
-        router.push(notification.data.deepLink);
-      }
-    } catch (error) {
-      console.error('Failed to handle notification press:', error);
     }
-  };
+    
+    // Navigate based on notification data
+    if (notification.data?.deepLink) {
+      router.push(notification.data.deepLink);
+    } else {
+      switch (notification.type) {
+        case 'new_message':
+          if (notification.data?.conversationId) {
+            router.push(`/chat/${notification.data.conversationId}`);
+          }
+          break;
+        case 'shift_reminder':
+          router.push('/rota');
+          break;
+        case 'new_payslip':
+          router.push('/pages/payslips');
+          break;
+      }
+    }
+  } catch (error) {
+    console.error('Failed to handle notification press:', error);
+  }
+};
 
   // Helper function to get company name for logo placeholder
   const getCompanyInitial = () => {
@@ -326,7 +395,7 @@ export default function Dashboard() {
                 
                 return (
                   <TouchableOpacity
-                    key={notification.id}
+                    key={notification._id}
                     style={[
                       styles.notificationItem,
                       { 

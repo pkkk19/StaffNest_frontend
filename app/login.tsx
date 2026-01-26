@@ -10,14 +10,27 @@ import {
   Image,
   Linking,
   Modal,
-  TouchableOpacity 
+  TouchableOpacity,
+  ScrollView,
+  ActivityIndicator 
 } from 'react-native';
 import { router } from 'expo-router';
-import { Mail, Lock, Eye, EyeOff, ExternalLink, X } from 'lucide-react-native';
+import { 
+  Mail, 
+  Lock, 
+  Eye, 
+  EyeOff, 
+  ExternalLink, 
+  X, 
+  ArrowLeft,
+  Key,
+  Check
+} from 'lucide-react-native';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import ForceTouchable from '@/components/ForceTouchable';
+import PasswordResetFlow from '@/components/auth/ForgotPasswordFlow'; // Import the flow component
 
 export default function Login() {
   const { login, tokenExpired, clearTokenExpired } = useAuth();
@@ -28,11 +41,13 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [showWebsiteModal, setShowWebsiteModal] = useState(false);
+  const [showForgotPassword, setShowForgotPassword] = useState(false); // Changed from showForgotPasswordModal
+  
   const [modalConfig, setModalConfig] = useState({
     title: '',
     message: '',
     url: '',
-    type: '' // 'signup' | 'forgot' | 'general'
+    type: '' // 'signup' | 'general'
   });
 
   const styles = createStyles(theme);
@@ -93,7 +108,7 @@ export default function Login() {
     }
   };
 
-  const showWebsiteRedirectModal = (type: 'signup' | 'forgot' | 'general', title: string, message: string, url?: string) => {
+  const showWebsiteRedirectModal = (type: 'signup' | 'general', title: string, message: string, url?: string) => {
     const config = {
       title,
       message,
@@ -112,14 +127,6 @@ export default function Login() {
     );
   };
 
-  const handleForgotPassword = () => {
-    showWebsiteRedirectModal(
-      'forgot',
-      t('forgotPassword'),
-      t('forgotPasswordRedirectMessage')
-    );
-  };
-
   const handleHourwizeLink = () => {
     showWebsiteRedirectModal(
       'general',
@@ -129,6 +136,10 @@ export default function Login() {
     );
   };
 
+  const handleForgotPassword = () => {
+    setShowForgotPassword(true);
+  };
+
   const handleModalAction = (action: 'open' | 'cancel') => {
     setShowWebsiteModal(false);
     if (action === 'open') {
@@ -136,9 +147,16 @@ export default function Login() {
     }
   };
 
+  const handleForgotPasswordSuccess = () => {
+    setShowForgotPassword(false);
+    Alert.alert(
+      'Success',
+      'Password reset successfully! You can now login with your new password.'
+    );
+  };
+
   const renderModalContent = () => {
     const isSignup = modalConfig.type === 'signup';
-    const isForgot = modalConfig.type === 'forgot';
     const isGeneral = modalConfig.type === 'general';
 
     return (
@@ -177,9 +195,7 @@ export default function Login() {
             onPress={() => handleModalAction('open')}
           >
             <Text style={styles.openButtonText}>
-              {isSignup ? t('signUp') : 
-               isForgot ? t('resetPassword') : 
-               t('open')}
+              {isSignup ? t('signUp') : t('open')}
             </Text>
           </TouchableOpacity>
         </View>
@@ -187,12 +203,6 @@ export default function Login() {
         {isSignup && (
           <Text style={styles.modalNote}>
             After signing up on our website, return here to login with your new account.
-          </Text>
-        )}
-
-        {isForgot && (
-          <Text style={styles.modalNote}>
-            You'll be redirected to our password reset page.
           </Text>
         )}
       </View>
@@ -310,6 +320,14 @@ export default function Login() {
           </View>
         </View>
       </Modal>
+
+      {/* Password Reset Flow */}
+      <PasswordResetFlow
+        visible={showForgotPassword}
+        onClose={() => setShowForgotPassword(false)}
+        theme={theme}
+        onSuccess={handleForgotPasswordSuccess}
+      />
     </KeyboardAvoidingView>
   );
 }

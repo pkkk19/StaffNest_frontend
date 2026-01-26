@@ -16,10 +16,11 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { router } from 'expo-router';
 import  api  from '@/services/api';
+import { notificationService } from '@/services/notificationService';
 
 // Define Notification type
 type Notification = {
-  id: string;
+  _id: string;
   title: string;
   body: string;
   type: string;
@@ -74,8 +75,22 @@ export default function NotificationsScreen() {
   };
 
   useEffect(() => {
-    fetchNotifications();
-  }, []);
+  fetchNotifications();
+  
+  // Reset badge when opening notifications screen
+  const resetBadge = async () => {
+    try {
+      // Sync badge count with backend
+      if (user?._id) {
+        await notificationService.syncBadgeCountWithBackend(user._id);
+      }
+    } catch (error) {
+      console.error('Failed to reset badge:', error);
+    }
+  };
+
+  resetBadge();
+}, []);
 
   const onRefresh = useCallback(() => {
     fetchNotifications(1, true);
@@ -87,21 +102,40 @@ export default function NotificationsScreen() {
     }
   };
 
-  const markAsRead = async (notificationId: string) => {
-    try {
-      setMarkingAsRead(notificationId);
-      
-      await api.post(`/notifications/${notificationId}/read`);
-      
+const markAsRead = async (notificationId: string) => {
+  console.log(`📝 Marking notification ${notificationId} as read...`);
+  
+  try {
+    setMarkingAsRead(notificationId);
+    
+    // Direct API call
+    const response = await api.post(`/notifications/${notificationId}/read`);
+    console.log('✅ API response:', response.data);
+    
+    if (response.data?.success) {
+      // Update local state
       setNotifications(prev => prev.map(n => 
-        n.id === notificationId ? { ...n, read: true } : n
+        n._id === notificationId ? { ...n, read: true } : n
       ));
-    } catch (error) {
-      console.error('Failed to mark as read:', error);
-    } finally {
-      setMarkingAsRead(null);
+      
+      // Update badge count
+      const currentCount = await notificationService.getBadgeCountAsync();
+      const newCount = Math.max(0, currentCount - 1);
+      await notificationService.setBadgeCountAsync(newCount);
+      console.log(`✅ Badge updated: ${newCount}`);
+    } else {
+      console.log('❌ API returned success=false:', response.data?.message);
     }
-  };
+  } catch (error: any) {
+    console.error('❌ Failed to mark as read:', {
+      message: error.message,
+      response: error.response?.data,
+      status: error.response?.status
+    });
+  } finally {
+    setMarkingAsRead(null);
+  }
+};
 
   const markAllAsRead = async () => {
     try {
@@ -114,32 +148,40 @@ export default function NotificationsScreen() {
   };
 
   const handleNotificationPress = async (notification: Notification) => {
-    try {
-      if (!notification.read) {
-        await markAsRead(notification.id);
-      }
-      
-      if (notification.data?.deepLink) {
-        router.push(notification.data.deepLink);
-      } else {
-        switch (notification.type) {
-          case 'new_message':
-            if (notification.data?.conversationId) {
-              router.push(`/chat/${notification.data.conversationId}`);
-            }
-            break;
-          case 'shift_reminder':
-            router.push('/rota');
-            break;
-          case 'new_payslip':
-            router.push('/pages/payslips');
-            break;
-        }
-      }
-    } catch (error) {
-      console.error('Failed to handle notification press:', error);
+  console.log('👆 Handling notification:', {
+    id: notification._id,
+    read: notification.read,
+    title: notification.title
+  });
+  
+  try {
+    // Only mark as read if it's unread
+    if (!notification.read) {
+      await markAsRead(notification._id);
     }
-  };
+    
+    // Navigate based on notification data
+    if (notification.data?.deepLink) {
+      router.push(notification.data.deepLink);
+    } else {
+      switch (notification.type) {
+        case 'new_message':
+          if (notification.data?.conversationId) {
+            router.push(`/chat/${notification.data.conversationId}`);
+          }
+          break;
+        case 'shift_reminder':
+          router.push('/rota');
+          break;
+        case 'new_payslip':
+          router.push('/pages/payslips');
+          break;
+      }
+    }
+  } catch (error) {
+    console.error('Failed to handle notification press:', error);
+  }
+};
 
   const getNotificationIcon = (type: string) => {
     switch (type) {
@@ -222,17 +264,17 @@ export default function NotificationsScreen() {
               {formatTimeAgo(item.createdAt)}
             </Text>
             
-            {!item.read && markingAsRead !== item.id && (
+            {!item.read && markingAsRead !== item._id && (
               <TouchableOpacity
                 style={styles.markReadButton}
-                onPress={() => markAsRead(item.id)}
+                onPress={() => markAsRead(item._id)}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
                 <CheckCircle size={16} color="#9CA3AF" />
               </TouchableOpacity>
             )}
             
-            {markingAsRead === item.id && (
+            {markingAsRead === item._id && (
               <ActivityIndicator size="small" color="#9CA3AF" />
             )}
           </View>
@@ -328,7 +370,7 @@ export default function NotificationsScreen() {
         ) : (
           <FlatList
             data={filteredNotifications}
-            keyExtractor={(item) => item.id}
+            keyExtractor={(item) => item._id}
             renderItem={renderNotificationItem}
             ListEmptyComponent={renderEmptyState}
             ListFooterComponent={renderFooter}

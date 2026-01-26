@@ -6,7 +6,8 @@ import {
   StyleSheet, 
   Platform, 
   TouchableOpacity, 
-  StatusBar 
+  StatusBar,
+  Image 
 } from 'react-native';
 import { 
   Calendar, 
@@ -19,7 +20,13 @@ import {
   Users,
   MessageSquare,
   ChevronRight,
-  Smartphone
+  Smartphone,
+  Building,
+  Key,
+  Edit2,
+  // Add these imports:
+  MoreVertical, // For the settings icon
+  Cog // Alternative settings icon
 } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -32,6 +39,24 @@ export default function MoreScreen() {
 
   const styles = createStyles(theme);
   const isDark = theme === 'dark';
+
+  // Get user's full name
+  const getUserFullName = () => {
+    if (!user) return 'User';
+    const firstName = user.first_name || '';
+    const lastName = user.last_name || '';
+    return `${firstName} ${lastName}`.trim() || 'User';
+  };
+
+  // Get initials for avatar
+  const getUserInitials = () => {
+    if (!user) return 'U';
+    const firstName = user.first_name || '';
+    const lastName = user.last_name || '';
+    const firstInitial = firstName.charAt(0).toUpperCase();
+    const lastInitial = lastName.charAt(0).toUpperCase();
+    return `${firstInitial}${lastInitial}` || 'U';
+  };
 
   // Main menu categories
   const menuSections = [
@@ -56,7 +81,7 @@ export default function MoreScreen() {
           title: 'Shift Requests',
           icon: <FileText size={22} color="#F59E0B" />,
           description: 'Request shift changes',
-          onPress: () => router.push('/rota/shift-requests'),
+          onPress: () => router.push(user?.role === 'admin' ? '/rota/shift-requests' : '/rota/my-requests'),
           show: user?.role === 'staff'
         },
         {
@@ -67,12 +92,12 @@ export default function MoreScreen() {
           show: true
         },
         {
-        title: 'Time Off',
-        icon: <Calendar size={22} color="#EC4899" />, // Changed icon to calendar, different color
-        description: 'Request and manage leave',
-        onPress: () => router.push('/pages/time-off'),
-        show: true
-      },
+          title: 'Time Off',
+          icon: <Calendar size={22} color="#EC4899" />,
+          description: 'Request and manage leave',
+          onPress: () => router.push('/pages/time-off'),
+          show: true
+        },
       ]
     },
     {
@@ -102,13 +127,46 @@ export default function MoreScreen() {
       ]
     },
     {
-      title: 'Support',
+      title: 'Company Management',
       items: [
+        {
+          title: 'Company Information',
+          icon: <Building size={22} color="#F59E0B" />,
+          description: user?.company_id ? 'Manage company details' : 'Setup company profile',
+          onPress: () => router.push(user?.company_id ? '/forms/company-info' : '/forms/company-setup'),
+          show: user?.role === 'admin'
+        },
+        {
+          title: 'Manage Roles',
+          icon: <Key size={22} color="#8B5CF6" />,
+          description: 'Add and edit job positions',
+          onPress: () => router.push('/pages/roles'),
+          show: user?.role === 'admin' && !!user?.company_id
+        },
+      ]
+    },
+    {
+      title: 'App & Support',
+      items: [
+        {
+          title: 'Messages',
+          icon: <MessageSquare size={22} color="#3B82F6" />,
+          description: 'View and send messages',
+          onPress: () => router.push('/chat'),
+          show: true
+        },
+        {
+          title: 'Settings',
+          icon: <Settings size={22} color="#06B6D4" />,
+          description: 'App preferences and settings',
+          onPress: () => router.push('/(tabs)/settings'),
+          show: true
+        },
         {
           title: 'Help & Support',
           icon: <HelpCircle size={22} color="#06B6D4" />,
           description: 'Get help and FAQs',
-          onPress: () => router.push('/(tabs)/settings'),
+          onPress: () => {},
           show: true
         },
         {
@@ -123,25 +181,6 @@ export default function MoreScreen() {
     }
   ];
 
-  // Quick actions at the top
-  const quickActions = [
-    {
-      title: 'Clock In',
-      icon: <Clock size={24} color="#10B981" />,
-      route: '/time'
-    },
-    {
-      title: 'Messages',
-      icon: <MessageSquare size={24} color="#3B82F6" />,
-      route: '/chat'
-    },
-    {
-      title: 'Settings',
-      icon: <Settings size={24} color="#8B5CF6" />,
-      route: '/(tabs)/settings'
-    }
-  ];
-
   return (
     <>
       <StatusBar 
@@ -149,34 +188,63 @@ export default function MoreScreen() {
         backgroundColor={isDark ? '#111827' : '#F9FAFB'}
       />
       <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
-        {/* Page Title */}
+        {/* Page Header with Settings Icon */}
         <View style={styles.pageHeader}>
-          <Text style={styles.pageTitle}>More Options</Text>
-          <Text style={styles.pageSubtitle}>
-            Access all features and settings
-          </Text>
-        </View>
-
-        {/* Quick Actions */}
-        <View style={styles.section}>
-          <View style={styles.quickActionsGrid}>
-            {quickActions.map((action, index) => (
-              <TouchableOpacity
-                key={index}
-                style={styles.quickActionCard}
-                onPress={() => router.push(action.route as any)}
-              >
-                <View style={[
-                  styles.quickActionIcon,
-                  { backgroundColor: isDark ? '#1F2937' : '#F3F4F6' }
-                ]}>
-                  {action.icon}
-                </View>
-                <Text style={styles.quickActionTitle}>{action.title}</Text>
-              </TouchableOpacity>
-            ))}
+          <View style={styles.headerTop}>
+            <View>
+              <Text style={styles.pageTitle}>More Options</Text>
+              <Text style={styles.pageSubtitle}>
+                Access all features and settings
+              </Text>
+            </View>
+            {/* Settings Icon */}
+            <TouchableOpacity
+              style={styles.settingsButton}
+              onPress={() => router.push('/(tabs)/settings')}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Settings 
+                size={24} 
+                color={isDark ? '#F9FAFB' : '#111827'} 
+              />
+            </TouchableOpacity>
           </View>
         </View>
+
+        {/* User Info Card - Clickable to go to My Profile */}
+        <TouchableOpacity 
+          style={[styles.userCard, { backgroundColor: isDark ? '#1F2937' : '#FFFFFF' }]}
+          onPress={() => router.push('/pages/edit-profile')}
+          activeOpacity={0.7}
+        >
+          <View style={styles.userInfo}>
+            {/* Profile Picture or Avatar */}
+            {user?.profile_picture_url ? (
+              <Image 
+                source={{ uri: user.profile_picture_url }} 
+                style={styles.profileImage}
+              />
+            ) : (
+              <View style={[styles.avatar, { backgroundColor: isDark ? '#374151' : '#F3F4F6' }]}>
+                <Text style={styles.avatarText}>
+                  {getUserInitials()}
+                </Text>
+              </View>
+            )}
+            
+            <View style={styles.userDetails}>
+              <View style={styles.userNameRow}>
+                <Text style={styles.userName}>{getUserFullName()}</Text>
+                <Edit2 size={16} color={isDark ? '#9CA3AF' : '#6B7280'} />
+              </View>
+              <Text style={styles.userRole}>
+                {user?.role === 'admin' ? 'Administrator' : 'Staff'} 
+                {user?.company_id ? ' • Company' : ''}
+              </Text>
+              <Text style={styles.editProfileText}>Tap to edit profile</Text>
+            </View>
+          </View>
+        </TouchableOpacity>
 
         {/* Main Menu Sections */}
         {menuSections.map((section, sectionIndex) => (
@@ -197,6 +265,7 @@ export default function MoreScreen() {
                     ]}
                     onPress={item.onPress}
                     disabled={item.disabled}
+                    activeOpacity={0.7}
                   >
                     <View style={styles.menuItemLeft}>
                       <View style={[
@@ -248,6 +317,11 @@ function createStyles(theme: string) {
       padding: 20,
       paddingTop: Platform.OS === 'ios' ? 60 : (StatusBar.currentHeight || 20) + 20,
     },
+    headerTop: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-start',
+    },
     pageTitle: {
       fontSize: 32,
       fontWeight: '700',
@@ -258,27 +332,18 @@ function createStyles(theme: string) {
       fontSize: 16,
       color: isDark ? '#9CA3AF' : '#6B7280',
     },
-    section: {
-      paddingHorizontal: 20,
-      marginTop: 24,
-    },
-    sectionTitle: {
-      fontSize: 16,
-      fontWeight: '600',
-      color: isDark ? '#9CA3AF' : '#6B7280',
-      marginBottom: 16,
-      textTransform: 'uppercase',
-      letterSpacing: 0.5,
-    },
-    quickActionsGrid: {
-      flexDirection: 'row',
-      gap: 12,
-    },
-    quickActionCard: {
-      flex: 1,
+    settingsButton: {
+      padding: 8,
+      borderRadius: 20,
+      backgroundColor: isDark ? '#374151' : '#F3F4F6',
+      justifyContent: 'center',
       alignItems: 'center',
+    },
+    userCard: {
+      marginHorizontal: 20,
+      marginTop: 8,
+      marginBottom: 24,
       padding: 16,
-      backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
       borderRadius: 16,
       ...Platform.select({
         ios: {
@@ -292,19 +357,65 @@ function createStyles(theme: string) {
         },
       }),
     },
-    quickActionIcon: {
-      width: 48,
-      height: 48,
-      borderRadius: 24,
+    userInfo: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 16,
+    },
+    profileImage: {
+      width: 56,
+      height: 56,
+      borderRadius: 28,
+      resizeMode: 'cover',
+      backgroundColor: isDark ? '#374151' : '#F3F4F6',
+    },
+    avatar: {
+      width: 56,
+      height: 56,
+      borderRadius: 28,
       justifyContent: 'center',
       alignItems: 'center',
-      marginBottom: 12,
     },
-    quickActionTitle: {
+    avatarText: {
+      fontSize: 20,
+      fontWeight: '700',
+      color: isDark ? '#F9FAFB' : '#111827',
+    },
+    userDetails: {
+      flex: 1,
+    },
+    userNameRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginBottom: 4,
+    },
+    userName: {
+      fontSize: 18,
+      fontWeight: '600',
+      color: isDark ? '#F9FAFB' : '#111827',
+    },
+    userRole: {
       fontSize: 14,
+      color: isDark ? '#9CA3AF' : '#6B7280',
+      marginBottom: 4,
+    },
+    editProfileText: {
+      fontSize: 13,
+      color: '#2563EB',
       fontWeight: '500',
-      color: isDark ? '#F9FAFB' : '#374151',
-      textAlign: 'center',
+    },
+    section: {
+      paddingHorizontal: 20,
+      marginTop: 24,
+    },
+    sectionTitle: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: isDark ? '#9CA3AF' : '#6B7280',
+      marginBottom: 16,
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
     },
     menuList: {
       borderRadius: 16,

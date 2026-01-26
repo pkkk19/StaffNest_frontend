@@ -30,7 +30,8 @@ import {
   Home,
   Briefcase,
   Check,
-  CalendarDays
+  CalendarDays,
+  Compass
 } from 'lucide-react-native';
 import MapView, { Marker, Circle, PROVIDER_GOOGLE, Region } from 'react-native-maps';
 import * as Location from 'expo-location';
@@ -1353,11 +1354,28 @@ const fetchCompanyInfo = async () => {
         style={styles.locationButton}
         onPress={focusOnCurrentLocation}
       >
-        <Navigation size={20} color={theme === 'dark' ? '#FFFFFF' : '#1E293B'} />
+        <Navigation size={25} color={theme === 'dark' ? '#FFFFFF' : '#1E293B'} />
       </TouchableOpacity>
 
       <View style={styles.actionContainer}>
-        {!isClockedIn ? (
+        {!locationPermission ? (
+          <TouchableOpacity
+            style={[
+              styles.enableLocationButton,
+              isLoading && styles.disabledButton
+            ]}
+            onPress={requestLocationPermission}
+            disabled={isLoading}
+            activeOpacity={0.9}
+          >
+            <View style={styles.buttonContent}>
+              <Compass size={28} color="#FFFFFF" />
+              <Text style={styles.enableLocationButtonText}>
+                {isLoading ? '...' : 'Enable Location'}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        ) : !isClockedIn ? (
           <TouchableOpacity
             style={[
               styles.clockInButton,
@@ -1569,7 +1587,7 @@ const createStyles = (theme: string) => StyleSheet.create({
     backgroundColor: theme === 'dark' ? '#0F172A' : '#F8FAFC',
   },
   mapContainer: {
-    marginTop: Constants.statusBarHeight,
+    marginTop: Constants.statusBarHeight+90,
     position: 'absolute',
     top: 0,
     left: 0,
@@ -1652,20 +1670,22 @@ const createStyles = (theme: string) => StyleSheet.create({
   },
   locationButton: {
     position: 'absolute',
-    top: Constants.statusBarHeight + 120,
+    bottom: 180, // Above the clock in/out button
     right: 20,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: theme === 'dark' ? 'rgba(30, 41, 59, 0.9)' : 'rgba(255, 255, 255, 0.9)',
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: theme === 'dark' ? 'rgba(30, 41, 59, 0.95)' : 'rgba(255, 255, 255, 0.95)',
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 5,
     zIndex: 900,
+    borderWidth: 1,
+    borderColor: theme === 'dark' ? 'rgba(99, 102, 241, 0.3)' : 'rgba(79, 70, 229, 0.2)',
   },
   currentShiftCard: {
     position: 'absolute',
@@ -1765,6 +1785,23 @@ const createStyles = (theme: string) => StyleSheet.create({
     shadowRadius: 8,
     elevation: 8,
   },
+  enableLocationButton: {
+  backgroundColor: '#3B82F6',
+  borderRadius: 24,
+  paddingVertical: 18,
+  paddingHorizontal: 36,
+  shadowColor: '#3B82F6',
+  shadowOffset: { width: 0, height: 4 },
+  shadowOpacity: 0.3,
+  shadowRadius: 8,
+  elevation: 8,
+},
+enableLocationButtonText: {
+  fontSize: 18,
+  fontWeight: '700',
+  color: '#FFFFFF',
+  letterSpacing: 0.3,
+},
   disabledButton: {
     opacity: 0.5,
   },

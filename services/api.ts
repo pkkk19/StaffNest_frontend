@@ -110,6 +110,7 @@ api.interceptors.response.use(
 );
 
 // Auth API calls
+// Add these password reset endpoints to authAPI
 export const authAPI = {
   login: (email: string, password: string) =>
     api.post('/auth/login', { email, password }),
@@ -122,12 +123,31 @@ export const authAPI = {
     role: string;
     company_id?: string;
   }) => api.post('/auth/register', userData),
+
+  // NEW: Password Reset Endpoints
+  forgotPassword: (email: string) =>
+    api.post('/auth/password/forgot', { email }),
+
+  verifyCode: (email: string, code: string) =>
+    api.post('/auth/password/verify-code', { email, code }),
+
+  resetPassword: (data: {
+    email: string;
+    verification_code: string;
+    new_password: string;
+    confirm_password: string;
+  }) => api.post('/auth/password/reset', data),
 };
 
 // Profile API calls
 export const profileAPI = {
   getProfile: () => api.get('/profile'),
   updateProfile: (profileData: any) => api.put('/profile', profileData),
+  changePassword: (passwordData: {
+    current_password: string;
+    new_password: string;
+    confirm_new_password: string;
+  }) => api.post('/profile/change-password', passwordData),
   uploadProfilePicture: (formData: FormData) => 
     api.post('/profile/upload-picture', formData, {
       headers: {
@@ -801,6 +821,32 @@ export const autoGenerationAPI = {
 
   // Get period options
   getPeriodOptions: () => api.get('/auto-scheduling/period-options'),
+};
+
+// Add this to your existing api.ts file in the export section:
+
+export const notificationSettingsAPI = {
+  // Get notification settings
+  getSettings: () => api.get('/notifications/settings'),
+  
+  // Update notification settings
+  updateSettings: (preferences: any) => 
+    api.put('/notifications/settings', { preferences }),
+  
+  // Reset to defaults
+  resetToDefaults: () => api.post('/notifications/settings/reset'),
+  
+  // Check if specific notification is enabled
+  checkNotificationEnabled: (type: string) => 
+    api.get(`/notifications/settings/check?type=${type}`),
+  
+  // Update shift reminder minutes
+  updateShiftReminderMinutes: (minutes: number[]) => 
+    api.put('/notifications/settings/shift-reminders/minutes', { minutes }),
+  
+  // Toggle specific setting
+  toggleSetting: (setting: string, value: boolean) => 
+    api.put('/notifications/settings/toggle', { setting, value }),
 };
 
 export default api;

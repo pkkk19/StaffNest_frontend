@@ -2,7 +2,7 @@
   "expo": {
     "name": "HourWize",
     "slug": "hourwize",
-    "version": "1.0.7",
+    "version": "1.0.8",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "myapp",
@@ -10,7 +10,6 @@
     "newArchEnabled": true,
     "android": {
       "package": "com.hourwize.hourwize",
-      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#FFFFFF"

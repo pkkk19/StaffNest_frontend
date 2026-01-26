@@ -38,6 +38,7 @@ export class NotificationService {
   private isChatOpen: boolean = false;
   private currentChatId: string | null = null;
   private activeConversations: Set<string> = new Set(); // Track all active conversations
+  private listeners: Set<() => void> = new Set(); // Listeners for badge count changes
 
   static getInstance(): NotificationService {
     if (!NotificationService.instance) {
@@ -77,6 +78,97 @@ export class NotificationService {
     
     console.log(`🔕 Suppressing notification for open chat: ${conversationId}`);
     return false;
+  }
+
+  // SYNC BADGE METHODS - ADD THESE
+  async syncBadgeCountWithBackend(userId: string): Promise<void> {
+    try {
+      console.log(`🔄 Syncing badge count for user: ${userId}`);
+      const response = await api.get('/notifications/unread-count');
+      if (response.data?.success) {
+        const unreadCount = response.data.count;
+        await this.setBadgeCountAsync(unreadCount);
+        console.log(`✅ Synced badge count: ${unreadCount}`);
+        this.notifyBadgeChange();
+      } else {
+        console.log('⚠️ No unread count from backend');
+      }
+    } catch (error) {
+      console.error('❌ Failed to sync badge count:', error);
+    }
+  }
+
+  async markNotificationAsReadInBackend(notificationId: string): Promise<boolean> {
+    try {
+      console.log(`📝 [DEBUG] Marking notification ${notificationId} as read`);
+      
+      // First, let's check if the API is reachable
+      console.log(`📝 [DEBUG] Testing API endpoint...`);
+      
+      const response = await api.post(`/notifications/${notificationId}/read`);
+      
+      console.log(`📝 [DEBUG] API Response:`, {
+        status: response.status,
+        data: response.data,
+        success: response.data?.success
+      });
+      
+      if (response.data?.success) {
+        // Decrement badge count locally
+        const currentCount = await this.getBadgeCountAsync();
+        const newCount = Math.max(0, currentCount - 1);
+        await this.setBadgeCountAsync(newCount);
+        console.log(`✅ [DEBUG] Notification marked as read, badge: ${newCount}`);
+        this.notifyBadgeChange();
+        return true;
+      } else {
+        console.log(`⚠️ [DEBUG] API returned success=false:`, response.data?.message);
+        return false;
+      }
+    } catch (error: any) {
+      console.error(`❌ [DEBUG] Failed to mark notification as read:`, {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      });
+      return false;
+    }
+  }
+
+  async markAllNotificationsAsRead(): Promise<boolean> {
+    try {
+      console.log('📝 Marking ALL notifications as read');
+      const response = await api.post('/notifications/mark-all-read');
+      if (response.data?.success) {
+        // Reset badge count to 0
+        await this.setBadgeCountAsync(0);
+        console.log('✅ All notifications marked as read, badge: 0');
+        this.notifyBadgeChange();
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('❌ Failed to mark all notifications as read:', error);
+      return false;
+    }
+  }
+
+  // Add badge change listener
+  addBadgeChangeListener(callback: () => void): () => void {
+    this.listeners.add(callback);
+    return () => {
+      this.listeners.delete(callback);
+    };
+  }
+
+  private notifyBadgeChange(): void {
+    this.listeners.forEach(callback => {
+      try {
+        callback();
+      } catch (error) {
+        console.error('Error in badge change listener:', error);
+      }
+    });
   }
 
   async registerForPushNotifications(): Promise<string | null> {
@@ -314,6 +406,7 @@ export class NotificationService {
   // Set badge number
   async setBadgeCountAsync(count: number): Promise<void> {
     await Notifications.setBadgeCountAsync(count);
+    this.notifyBadgeChange();
   }
 
   // Get badge number
@@ -354,6 +447,11 @@ export class NotificationService {
       },
       trigger: null as any, // Immediate
     });
+    
+    // Only increment badge if we're actually showing the notification
+    const count = await this.getBadgeCountAsync();
+    await this.setBadgeCountAsync(count + 1);
+    
     console.log('✅ Presented local notification:', notificationId);
     return notificationId;
   }
@@ -420,6 +518,78 @@ export class NotificationService {
         conversationId
       }
     );
+  }
+
+  // Setup notification handlers for badge management
+  setupNotificationHandlers(): void {
+    console.log('🔄 Setting up notification handlers');
+    
+    // Handle notification when app is in foreground
+    this.addNotificationReceivedListener((notification) => {
+      console.log('📱 Notification received in foreground:', notification.request.content.title);
+      // Don't increment badge here - badge is handled in presentLocalNotification
+    });
+
+    // Handle notification response (user taps notification)
+    this.addNotificationResponseReceivedListener((response) => {
+      console.log('👆 Notification tapped:', response.notification.request.content.title);
+      
+      // Get notification data
+      const notification = response.notification;
+      const data = notification.request.content.data as any;
+      
+      // If it's a backend notification with ID, mark it as read
+      if (data?.notificationId && typeof data.notificationId === 'string') {
+        this.markNotificationAsReadInBackend(data.notificationId);
+      }
+      
+      // Navigate based on data
+      if (data?.deepLink) {
+        console.log('📍 Deep link:', data.deepLink);
+        // You'll need to implement navigation based on your router setup
+      }
+    });
+
+    // Handle dropped notifications
+    this.addNotificationsDroppedListener(() => {
+      console.log('📭 Notifications were dropped');
+    });
+  }
+
+  // Handle initial notification when app opens
+  async handleInitialNotification(): Promise<any> {
+    try {
+      const initialNotification = await Notifications.getLastNotificationResponseAsync();
+      
+      if (initialNotification) {
+        console.log('🚀 App opened from notification:', initialNotification.notification.request.content.title);
+        
+        const data = initialNotification.notification.request.content.data as any;
+        
+        // Mark as read if it has an ID
+        if (data?.notificationId && typeof data.notificationId === 'string') {
+          await this.markNotificationAsReadInBackend(data.notificationId);
+        }
+        
+        return data;
+      }
+      return null;
+    } catch (error) {
+      console.error('❌ Error handling initial notification:', error);
+      return null;
+    }
+  }
+
+  // Debug method to reset badge
+  async debugResetBadge(): Promise<void> {
+    console.log('🔧 Debug: Resetting badge to 0');
+    await this.setBadgeCountAsync(0);
+  }
+
+  // Debug method to show current badge count
+  async debugShowBadgeCount(): Promise<void> {
+    const count = await this.getBadgeCountAsync();
+    console.log(`🔧 Debug: Current badge count: ${count}`);
   }
 }
 

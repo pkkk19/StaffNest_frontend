@@ -14,7 +14,6 @@ import { useRouter } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import {
-  Calendar,
   Clock,
   FileText,
   CheckCircle,
@@ -23,8 +22,11 @@ import {
   Plus,
   Calendar as CalendarIcon,
   Users,
-  BarChart3,
   ChevronRight,
+  CalendarDays,
+  UserCheck,
+  TrendingUp,
+  ArrowLeft,
 } from 'lucide-react-native';
 import { timeOffAPI } from '@/services/api';
 
@@ -50,7 +52,7 @@ export default function TimeOffDashboard() {
       setLoading(true);
       const [summaryRes, leavesRes] = await Promise.all([
         timeOffAPI.getLeaveSummary(),
-        timeOffAPI.getMyLeaves(),
+        timeOffAPI.getMyLeaves({ limit: 5 }),
       ]);
       setSummary(summaryRes.data);
       setRecentLeaves(leavesRes.data);
@@ -110,8 +112,21 @@ export default function TimeOffDashboard() {
       paid_leave: '#10B981',
       unpaid_leave: '#F59E0B',
       personal_leave: '#06B6D4',
+      maternity_leave: '#8B5CF6',
+      paternity_leave: '#3B82F6',
     };
     return colors[type] || '#6B7280';
+  };
+
+  const formatLeaveType = (type: string) => {
+    return type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+  };
+
+  const calculateUtilizationRate = () => {
+    if (!summary?.total_annual_leave || !summary?.total_days_taken) return 0;
+    const totalDays = summary.total_annual_leave;
+    const takenDays = summary.total_days_taken;
+    return Math.round((takenDays / totalDays) * 100);
   };
 
   if (loading) {
@@ -134,25 +149,35 @@ export default function TimeOffDashboard() {
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
+        showsVerticalScrollIndicator={false}
       >
-        {/* Header */}
+        {/* Header with Back Button */}
         <View style={styles.header}>
-          <View>
+          <TouchableOpacity 
+            style={styles.backButton}
+            onPress={() => router.back()}
+          >
+            <ArrowLeft size={24} color={isDark ? '#F9FAFB' : '#111827'} />
+          </TouchableOpacity>
+          <View style={styles.headerContent}>
             <Text style={styles.headerTitle}>Time Off</Text>
             <Text style={styles.headerSubtitle}>
               Manage your leave requests and balances
             </Text>
           </View>
-          <TouchableOpacity
-            style={styles.newRequestButton}
-            onPress={() => router.push('/pages/time-off/new-request')}
-          >
-            <Plus size={20} color="#FFFFFF" />
-            <Text style={styles.newRequestButtonText}>New Request</Text>
-          </TouchableOpacity>
+          {user?.role === 'admin' ? (
+            <TouchableOpacity
+              style={styles.adminButton}
+              onPress={() => router.push('/pages/time-off/team-requests')}
+            >
+              <UserCheck size={20} color={isDark ? '#3B82F6' : '#2563EB'} />
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.headerRightPlaceholder} />
+          )}
         </View>
 
-        {/* Quick Stats */}
+        {/* Quick Stats - Reverted to original design */}
         <View style={styles.statsGrid}>
           <View style={styles.statCard}>
             <Text style={styles.statValue}>
@@ -203,15 +228,8 @@ export default function TimeOffDashboard() {
               </View>
               <Text style={styles.actionTitle}>My Leaves</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.actionCard}
-              onPress={() => router.push('/pages/time-off/calendar')}
-            >
-              <View style={[styles.actionIcon, { backgroundColor: '#8B5CF620' }]}>
-                <CalendarIcon size={24} color="#8B5CF6" />
-              </View>
-              <Text style={styles.actionTitle}>Calendar</Text>
-            </TouchableOpacity>
+            
+            {/* Admin-only actions */}
             {user?.role === 'admin' && (
               <TouchableOpacity
                 style={styles.actionCard}
@@ -223,6 +241,17 @@ export default function TimeOffDashboard() {
                 <Text style={styles.actionTitle}>Team Requests</Text>
               </TouchableOpacity>
             )}
+            
+            {/* Common action for all users */}
+            {/* <TouchableOpacity
+              style={styles.actionCard}
+              onPress={() => router.push('/pages/time-off/calendar')}
+            >
+              <View style={[styles.actionIcon, { backgroundColor: '#8B5CF620' }]}>
+                <CalendarIcon size={24} color="#8B5CF6" />
+              </View>
+              <Text style={styles.actionTitle}>Calendar</Text>
+            </TouchableOpacity> */}
           </View>
         </View>
 
@@ -230,13 +259,17 @@ export default function TimeOffDashboard() {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Recent Requests</Text>
-            <TouchableOpacity onPress={() => router.push('/pages/time-off/my-leaves')}>
+            <TouchableOpacity 
+              style={styles.seeAllButton}
+              onPress={() => router.push('/pages/time-off/my-leaves')}
+            >
               <Text style={styles.seeAllText}>See All</Text>
+              <ChevronRight size={16} color="#2563EB" />
             </TouchableOpacity>
           </View>
           <View style={styles.requestsList}>
             {recentLeaves.length > 0 ? (
-              recentLeaves.slice(0, 3).map((leave) => (
+              recentLeaves.map((leave) => (
                 <TouchableOpacity
                   key={leave._id}
                   style={styles.requestItem}
@@ -251,7 +284,7 @@ export default function TimeOffDashboard() {
                         ]}
                       />
                       <Text style={styles.requestTypeText}>
-                        {leave.leave_type?.replace('_', ' ') || 'Leave'}
+                        {formatLeaveType(leave.leave_type)}
                       </Text>
                     </View>
                     <View style={styles.requestStatus}>
@@ -262,17 +295,33 @@ export default function TimeOffDashboard() {
                           { color: getStatusColor(leave.status) },
                         ]}
                       >
-                        {leave.status}
+                        {leave.status.charAt(0).toUpperCase() + leave.status.slice(1)}
                       </Text>
                     </View>
                   </View>
-                  <Text style={styles.requestDate}>
-                    {new Date(leave.start_date).toLocaleDateString()} -{' '}
-                    {new Date(leave.end_date).toLocaleDateString()}
-                  </Text>
-                  <Text style={styles.requestReason} numberOfLines={2}>
-                    {leave.reason}
-                  </Text>
+                  <View style={styles.requestDetails}>
+                    <CalendarDays size={14} color={isDark ? '#9CA3AF' : '#6B7280'} />
+                    <Text style={styles.requestDate}>
+                      {new Date(leave.start_date).toLocaleDateString('en-US', { 
+                        month: 'short', 
+                        day: 'numeric' 
+                      })}
+                      {leave.start_date !== leave.end_date && (
+                        <>
+                          {' - '}
+                          {new Date(leave.end_date).toLocaleDateString('en-US', { 
+                            month: 'short', 
+                            day: 'numeric' 
+                          })}
+                        </>
+                      )}
+                    </Text>
+                  </View>
+                  {leave.reason && (
+                    <Text style={styles.requestReason} numberOfLines={2}>
+                      {leave.reason}
+                    </Text>
+                  )}
                   {leave.duration_type === 'partial_day' && leave.start_time && leave.end_time && (
                     <View style={styles.timeContainer}>
                       <Clock size={14} color={isDark ? '#9CA3AF' : '#6B7280'} />
@@ -303,8 +352,14 @@ export default function TimeOffDashboard() {
                 <FileText size={48} color={isDark ? '#374151' : '#D1D5DB'} />
                 <Text style={styles.emptyStateText}>No leave requests yet</Text>
                 <Text style={styles.emptyStateSubtext}>
-                  Request your first time off by tapping the button above
+                  Tap "Request Leave" to create your first time off request
                 </Text>
+                <TouchableOpacity
+                  style={styles.createFirstButton}
+                  onPress={() => router.push('/pages/time-off/new-request')}
+                >
+                  <Text style={styles.createFirstButtonText}>Create First Request</Text>
+                </TouchableOpacity>
               </View>
             )}
           </View>
@@ -359,34 +414,42 @@ function createStyles(theme: string) {
     },
     header: {
       flexDirection: 'row',
-      justifyContent: 'space-between',
       alignItems: 'center',
       padding: 20,
       paddingTop: Platform.OS === 'ios' ? 60 : (StatusBar.currentHeight || 20) + 20,
+      gap: 12,
+    },
+    backButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      justifyContent: 'center',
+      alignItems: 'center',
+      backgroundColor: isDark ? '#1F2937' : '#E5E7EB',
+    },
+    headerContent: {
+      flex: 1,
     },
     headerTitle: {
-      fontSize: 32,
+      fontSize: 25,
       fontWeight: '700',
       color: isDark ? '#F9FAFB' : '#111827',
       marginBottom: 4,
     },
     headerSubtitle: {
-      fontSize: 16,
+      fontSize: 14,
       color: isDark ? '#9CA3AF' : '#6B7280',
     },
-    newRequestButton: {
-      flexDirection: 'row',
+    adminButton: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: isDark ? '#1F2937' : '#E5E7EB',
+      justifyContent: 'center',
       alignItems: 'center',
-      backgroundColor: '#2563EB',
-      paddingHorizontal: 16,
-      paddingVertical: 10,
-      borderRadius: 12,
-      gap: 8,
     },
-    newRequestButtonText: {
-      color: '#FFFFFF',
-      fontWeight: '600',
-      fontSize: 14,
+    headerRightPlaceholder: {
+      width: 44,
     },
     statsGrid: {
       flexDirection: 'row',
@@ -440,6 +503,12 @@ function createStyles(theme: string) {
       fontSize: 18,
       fontWeight: '600',
       color: isDark ? '#F9FAFB' : '#111827',
+      marginBottom: 8,
+    },
+    seeAllButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
     },
     seeAllText: {
       fontSize: 14,
@@ -448,8 +517,8 @@ function createStyles(theme: string) {
     },
     actionsGrid: {
       flexDirection: 'row',
-      gap: 12,
       flexWrap: 'wrap',
+      gap: 12,
     },
     actionCard: {
       width: '48%',
@@ -525,10 +594,15 @@ function createStyles(theme: string) {
       fontWeight: '500',
       textTransform: 'capitalize',
     },
+    requestDetails: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginBottom: 8,
+    },
     requestDate: {
       fontSize: 14,
       color: isDark ? '#9CA3AF' : '#6B7280',
-      marginBottom: 8,
     },
     requestReason: {
       fontSize: 14,
@@ -572,6 +646,18 @@ function createStyles(theme: string) {
       fontSize: 14,
       color: isDark ? '#9CA3AF' : '#6B7280',
       textAlign: 'center',
+      marginBottom: 16,
+    },
+    createFirstButton: {
+      backgroundColor: '#2563EB',
+      paddingHorizontal: 20,
+      paddingVertical: 10,
+      borderRadius: 12,
+    },
+    createFirstButtonText: {
+      color: '#FFFFFF',
+      fontWeight: '600',
+      fontSize: 14,
     },
     adminStats: {
       flexDirection: 'row',

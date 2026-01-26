@@ -16,6 +16,7 @@ import { useRotaData } from '@/hooks/useRotaData';
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Shift } from '@/app/types/rota.types';
 import { useOpenShifts } from '@/hooks/useOpenShifts';
+import CreateShiftFromRoleModal from '@/components/rota/CreateShiftFromRoleModal';
 
 // Define the view modes - removed 'calendar'
 export type ScheduleViewMode = 'list' | 'user-grid';
@@ -894,7 +895,7 @@ export default function RotaScreen() {
         </View>
       )}
 
-      <CreateShiftModal
+      <CreateShiftFromRoleModal
         visible={showCreateModal}
         onClose={() => setShowCreateModal(false)}
         onSuccess={handleShiftCreated}

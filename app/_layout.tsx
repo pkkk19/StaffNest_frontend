@@ -1,6 +1,6 @@
 // app/_layout.tsx - CORRECTED VERSION
 import 'react-native-get-random-values';
-import { useEffect, useRef } from 'react';
+import { use, useEffect, useRef } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
@@ -19,6 +19,7 @@ import { AIChatProvider } from '@/contexts/AIChatContext';
 import { NotificationPermissionPrompt } from '@/components/NotificationPermissionPrompt';
 import { CallInvitationModal } from './calls/callInvitationModal';
 import { ChatPreviewProvider } from '@/contexts/ChatPreviewContext';
+import { useBadgeSync } from '@/hooks/useBadgeSync';
 
 // Initialize notification handler
 const createNotificationBehavior = (): Notifications.NotificationBehavior => {
@@ -46,6 +47,7 @@ function RootLayoutNav() {
   const { isAuthenticated, tokenExpired, user } = useAuth();
   const segments = useSegments();
   const router = useRouter();
+  useBadgeSync();
   
   const notificationListener = useRef<ReturnType<typeof Notifications.addNotificationReceivedListener> | null>(null);
   const responseListener = useRef<ReturnType<typeof Notifications.addNotificationResponseReceivedListener> | null>(null);
@@ -220,6 +222,7 @@ function RootLayoutNav() {
         <Stack.Screen name="pages/edit-profile" />
         <Stack.Screen name="pages/role-form" />
         <Stack.Screen name="pages/roles" />
+        <Stack.Screen name="pages/create-shifts-from-role" />
         
         {/* Payslips */}
         <Stack.Screen name="pages/payslips/index" />

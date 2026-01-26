@@ -104,6 +104,19 @@ const AddFriendsTab: React.FC<AddFriendsTabProps> = ({
         )}
       </View>
 
+        {/* Add this note component */}
+    <View style={styles.noteContainer}>
+      <Ionicons name="information-circle-outline" size={16} color="#666" />
+      <View style={styles.noteContent}>
+        <Text style={styles.noteText}>
+          Note: You can search users only within your company
+        </Text>
+        <Text style={styles.noteSubtext}>
+          To add users outside the company, use their User ID in the "Add New Contact"
+        </Text>
+      </View>
+    </View>
+
       {searchQuery.length >= 2 && searchResults.length === 0 && !searchLoading && (
         <View style={styles.emptyState}>
           <Ionicons name="people-outline" size={64} color="#ccc" />
@@ -164,6 +177,31 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 44,
     fontSize: 16,
+  },
+  noteContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f0f7ff',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+    marginBottom: 12,
+    marginTop: 4,
+  },
+  noteContent: {
+    flex: 1,
+    marginLeft: 8,
+  },
+  noteText: {
+    fontSize: 13,
+    color: '#0056b3',
+    fontWeight: '500',
+    marginBottom: 2,
+  },
+  noteSubtext: {
+    fontSize: 12,
+    color: '#666',
+    lineHeight: 16,
   },
   loadingIndicator: {
     marginLeft: 8,

@@ -19,46 +19,54 @@ export default function TabLayout() {
   // Keep navbar white/light for both themes
   const colors = theme === 'dark' 
     ? { 
-        background: '#FFFFFF', // White background for navbar
-        text: '#374151', // Dark grey for text
-        inactive: '#9CA3AF' // Light grey for inactive
+        background: '#111827', // Dark background for navbar
+        text: '#F9FAFB', // Light text for dark mode
+        inactive: '#9CA3AF', // Light grey for inactive
+        border: '#374151', // Dark border
+        activeIcon: '#3B82F6', // Blue for active
+        inactiveIcon: '#D1D5DB' // Light grey for inactive icons
       }
     : { 
         background: '#FFFFFF', // White background for navbar
-        text: '#374151', // Dark grey for text
-        inactive: '#9CA3AF' // Light grey for inactive
+        text: '#111827', // Dark text for light mode
+        inactive: '#6B7280', // Darker grey for inactive
+        border: '#E5E7EB', // Light border
+        activeIcon: '#2563EB', // Blue for active
+        inactiveIcon: '#6B7280' // Dark grey for inactive icons
       };
+
+  // Common tab bar options
+  const screenOptions = {
+    headerShown: false,
+    tabBarStyle: {
+      backgroundColor: colors.background,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+      height: 80,
+      paddingBottom: 8,
+      paddingTop: 8,
+    },
+    tabBarLabelStyle: {
+      fontSize: 12,
+      fontWeight: '500' as '500', // Fixed: Type assertion
+      marginTop: 4,
+      color: colors.text,
+    },
+    tabBarActiveTintColor: colors.activeIcon,
+    tabBarInactiveTintColor: colors.inactiveIcon,
+  };
 
   // Staff layout
   if (user?.role === 'staff') {
     return (
       <ProtectedRoute>
-        <Tabs
-          screenOptions={{
-            headerShown: false,
-            tabBarStyle: {
-              backgroundColor: colors.background,
-              borderTopWidth: 1,
-              borderTopColor: '#E5E7EB', // Light grey border
-              height: 80,
-              paddingBottom: 8,
-              paddingTop: 8,
-            },
-            tabBarLabelStyle: {
-              fontSize: 12,
-              fontWeight: '500',
-              marginTop: 4,
-              color: '#000000', // Black text for labels
-            },
-            tabBarActiveTintColor: '#2563EB', // Blue for active icon
-            tabBarInactiveTintColor: '#000000', // Black for inactive icons
-          }}>
+        <Tabs screenOptions={screenOptions}>
           <Tabs.Screen
             name="index"
             options={{
               title: 'Home',
               tabBarIcon: ({ size, color, focused }) => (
-                <HomeIcon size={size} color={focused ? '#2563EB' : '#000000'} />
+                <HomeIcon size={size} color={color} />
               ),
             }}
           />
@@ -67,7 +75,7 @@ export default function TabLayout() {
             options={{
               title: 'Clock In',
               tabBarIcon: ({ size, color, focused }) => (
-                <Clock size={size} color={focused ? '#2563EB' : '#000000'} />
+                <Clock size={size} color={color} />
               ),
             }}
           />
@@ -76,7 +84,7 @@ export default function TabLayout() {
             options={{
               title: 'Messenger',
               tabBarIcon: ({ size, color, focused }) => (
-                <MessageSquare size={size} color={focused ? '#2563EB' : '#000000'} />
+                <MessageSquare size={size} color={color} />
               ),
             }}
           />
@@ -85,7 +93,7 @@ export default function TabLayout() {
             options={{
               title: 'More',
               tabBarIcon: ({ size, color, focused }) => (
-                <MoreVertical size={size} color={focused ? '#2563EB' : '#000000'} />
+                <MoreVertical size={size} color={color} />
               ),
             }}
           />
@@ -117,26 +125,7 @@ export default function TabLayout() {
   // Admin/Manager layout
   return (
     <ProtectedRoute>
-      <Tabs
-        screenOptions={{
-          headerShown: false,
-          tabBarStyle: {
-            backgroundColor: colors.background,
-            borderTopWidth: 1,
-            borderTopColor: '#E5E7EB',
-            height: 80,
-            paddingBottom: 8,
-            paddingTop: 8,
-          },
-          tabBarLabelStyle: {
-            fontSize: 12,
-            fontWeight: '500',
-            marginTop: 4,
-            color: '#000000', // Black text for labels
-          },
-          tabBarActiveTintColor: '#2563EB', // Blue for active icon
-          tabBarInactiveTintColor: '#000000', // Black for inactive icons
-        }}>
+      <Tabs screenOptions={screenOptions}>
         
         {/* Tab 1: Home */}
         <Tabs.Screen
@@ -144,7 +133,7 @@ export default function TabLayout() {
           options={{
             title: 'Home',
             tabBarIcon: ({ size, color, focused }) => (
-              <HomeIcon size={size} color={focused ? '#2563EB' : '#000000'} />
+              <HomeIcon size={size} color={color} />
             ),
           }}
         />
@@ -155,7 +144,7 @@ export default function TabLayout() {
           options={{
             title: 'Clock In',
             tabBarIcon: ({ size, color, focused }) => (
-              <Clock size={size} color={focused ? '#2563EB' : '#000000'} />
+              <Clock size={size} color={color} />
             ),
           }}
         />
@@ -166,7 +155,7 @@ export default function TabLayout() {
           options={{
             title: 'Messenger',
             tabBarIcon: ({ size, color, focused }) => (
-              <MessageSquare size={size} color={focused ? '#2563EB' : '#000000'} />
+              <MessageSquare size={size} color={color} />
             ),
           }}
         />
@@ -177,7 +166,7 @@ export default function TabLayout() {
           options={{
             title: 'Manage Staff',
             tabBarIcon: ({ size, color, focused }) => (
-              <Users size={size} color={focused ? '#2563EB' : '#000000'} />
+              <Users size={size} color={color} />
             ),
           }}
         />
@@ -188,7 +177,7 @@ export default function TabLayout() {
           options={{
             title: 'More',
             tabBarIcon: ({ size, color, focused }) => (
-              <MoreVertical size={size} color={focused ? '#2563EB' : '#000000'} />
+              <MoreVertical size={size} color={color} />
             ),
           }}
         />

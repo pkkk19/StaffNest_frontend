@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   Platform,
+  Animated,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -20,8 +21,10 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
-  Filter,
   ChevronRight,
+  Plus,
+  ArrowLeft,
+  Filter,
 } from 'lucide-react-native';
 import { timeOffAPI } from '@/services/api';
 
@@ -33,7 +36,6 @@ export default function MyLeaves() {
   const [refreshing, setRefreshing] = useState(false);
   const [leaves, setLeaves] = useState<any[]>([]);
   const [filter, setFilter] = useState<string>('all');
-  const [showFilters, setShowFilters] = useState(false);
 
   const styles = createStyles(theme);
   const isDark = theme === 'dark';
@@ -94,6 +96,21 @@ export default function MyLeaves() {
     }
   };
 
+  const getStatusBackgroundColor = (status: string) => {
+    switch (status) {
+      case 'approved':
+        return isDark ? '#10B98120' : '#10B98110';
+      case 'rejected':
+        return isDark ? '#EF444420' : '#EF444410';
+      case 'pending':
+        return isDark ? '#F59E0B20' : '#F59E0B10';
+      case 'cancelled':
+        return isDark ? '#6B728020' : '#6B728010';
+      default:
+        return isDark ? '#6B728020' : '#6B728010';
+    }
+  };
+
   const getLeaveTypeColor = (type: string) => {
     const colors: Record<string, string> = {
       annual_leave: '#3B82F6',
@@ -102,16 +119,27 @@ export default function MyLeaves() {
       paid_leave: '#10B981',
       unpaid_leave: '#F59E0B',
       personal_leave: '#06B6D4',
+      maternity_leave: '#8B5CF6',
+      paternity_leave: '#3B82F6',
     };
     return colors[type] || '#6B7280';
   };
 
+  const getLeaveTypeBackgroundColor = (type: string) => {
+    const color = getLeaveTypeColor(type);
+    return isDark ? `${color}20` : `${color}15`;
+  };
+
+  const formatLeaveType = (type: string) => {
+    return type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+  };
+
   const filters = [
-    { value: 'all', label: 'All' },
-    { value: 'pending', label: 'Pending' },
-    { value: 'approved', label: 'Approved' },
-    { value: 'rejected', label: 'Rejected' },
-    { value: 'cancelled', label: 'Cancelled' },
+    { value: 'all', label: 'All', count: leaves.length },
+    { value: 'pending', label: 'Pending', count: leaves.filter(l => l.status === 'pending').length },
+    { value: 'approved', label: 'Approved', count: leaves.filter(l => l.status === 'approved').length },
+    { value: 'rejected', label: 'Rejected', count: leaves.filter(l => l.status === 'rejected').length },
+    { value: 'cancelled', label: 'Cancelled', count: leaves.filter(l => l.status === 'cancelled').length },
   ];
 
   const formatDate = (dateString: string) => {
@@ -120,6 +148,17 @@ export default function MyLeaves() {
       day: 'numeric',
       year: 'numeric',
     });
+  };
+
+  const formatDateRange = (startDate: string, endDate: string) => {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    
+    if (start.toDateString() === end.toDateString()) {
+      return formatDate(startDate);
+    }
+    
+    return `${formatDate(startDate)} - ${formatDate(endDate)}`;
   };
 
   if (loading && !refreshing) {
@@ -142,29 +181,60 @@ export default function MyLeaves() {
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
+        showsVerticalScrollIndicator={false}
       >
         {/* Header */}
         <View style={styles.header}>
-          <View>
+          <TouchableOpacity 
+            style={styles.backButton}
+            onPress={() => router.back()}
+          >
+            <ArrowLeft size={24} color={isDark ? '#F9FAFB' : '#111827'} />
+          </TouchableOpacity>
+          <View style={styles.headerContent}>
             <Text style={styles.headerTitle}>My Leaves</Text>
-            <Text style={styles.headerSubtitle}>
+            {/* <Text style={styles.headerSubtitle}>
               View your leave requests and status
-            </Text>
+            </Text> */}
           </View>
           <TouchableOpacity
             style={styles.newRequestButton}
             onPress={() => router.push('/pages/time-off/new-request')}
           >
-            <Text style={styles.newRequestButtonText}>New Request</Text>
+            <Plus size={20} color="#FFFFFF" />
           </TouchableOpacity>
         </View>
 
+        {/* Summary Stats */}
+        <View style={styles.summarySection}>
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryValue}>{leaves.length}</Text>
+            <Text style={styles.summaryLabel}>Total Requests</Text>
+          </View>
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryValue}>
+              {leaves.filter(l => l.status === 'pending').length}
+            </Text>
+            <Text style={styles.summaryLabel}>Pending</Text>
+          </View>
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryValue}>
+              {leaves.filter(l => l.status === 'approved').length}
+            </Text>
+            <Text style={styles.summaryLabel}>Approved</Text>
+          </View>
+        </View>
+
         {/* Filters */}
-        <View style={styles.filterSection}>
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Filter by Status</Text>
+            <Filter size={16} color={isDark ? '#9CA3AF' : '#6B7280'} />
+          </View>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            style={styles.filterScroll}
+            contentContainerStyle={styles.filtersContainer}
           >
             {filters.map((filterItem) => (
               <TouchableOpacity
@@ -172,6 +242,7 @@ export default function MyLeaves() {
                 style={[
                   styles.filterButton,
                   filter === filterItem.value && styles.filterButtonActive,
+                  { backgroundColor: getStatusBackgroundColor(filterItem.value) },
                 ]}
                 onPress={() => setFilter(filterItem.value)}
               >
@@ -183,93 +254,154 @@ export default function MyLeaves() {
                 >
                   {filterItem.label}
                 </Text>
+                <View style={styles.filterBadge}>
+                  <Text style={[
+                    styles.filterBadgeText,
+                    filter === filterItem.value && styles.filterBadgeTextActive,
+                  ]}>
+                    {filterItem.count}
+                  </Text>
+                </View>
               </TouchableOpacity>
             ))}
           </ScrollView>
         </View>
 
         {/* Leave List */}
-        <View style={styles.leavesList}>
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>
+              {filter === 'all' ? 'All Leaves' : `${filter.charAt(0).toUpperCase() + filter.slice(1)} Leaves`}
+            </Text>
+            <Text style={styles.leaveCount}>{leaves.length} requests</Text>
+          </View>
+          
           {leaves.length > 0 ? (
-            leaves.map((leave) => (
-              <TouchableOpacity
-                key={leave._id}
-                style={styles.leaveCard}
-                onPress={() => router.push(`/pages/time-off/leave/${leave._id}`)}
-              >
-                <View style={styles.leaveCardHeader}>
-                  <View style={styles.leaveType}>
-                    <View
-                      style={[
-                        styles.typeIndicator,
-                        { backgroundColor: getLeaveTypeColor(leave.leave_type) },
-                      ]}
-                    />
-                    <Text style={styles.leaveTypeText}>
-                      {leave.leave_type?.replace('_', ' ') || 'Leave'}
-                    </Text>
+            <View style={styles.leavesList}>
+              {leaves.map((leave) => (
+                <TouchableOpacity
+                  key={leave._id}
+                  style={styles.leaveCard}
+                  onPress={() => router.push(`/pages/time-off/leave/${leave._id}`)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.leaveCardHeader}>
+                    <View style={styles.leaveTypeBadge}>
+                      <View
+                        style={[
+                          styles.typeIndicator,
+                          { backgroundColor: getLeaveTypeColor(leave.leave_type) },
+                        ]}
+                      />
+                      <Text style={styles.leaveTypeText}>
+                        {formatLeaveType(leave.leave_type)}
+                      </Text>
+                    </View>
+                    <View style={[
+                      styles.statusBadge,
+                      { backgroundColor: getStatusBackgroundColor(leave.status) }
+                    ]}>
+                      {getStatusIcon(leave.status)}
+                      <Text
+                        style={[
+                          styles.statusText,
+                          { color: getStatusColor(leave.status) },
+                        ]}
+                      >
+                        {leave.status.charAt(0).toUpperCase() + leave.status.slice(1)}
+                      </Text>
+                    </View>
                   </View>
-                  <View style={styles.leaveStatus}>
-                    {getStatusIcon(leave.status)}
-                    <Text
-                      style={[
-                        styles.statusText,
-                        { color: getStatusColor(leave.status) },
-                      ]}
-                    >
-                      {leave.status}
-                    </Text>
+
+                  <View style={styles.dateSection}>
+                    <View style={styles.dateRow}>
+                      <Calendar size={16} color={isDark ? '#9CA3AF' : '#6B7280'} />
+                      <Text style={styles.dateText}>
+                        {formatDateRange(leave.start_date, leave.end_date)}
+                      </Text>
+                    </View>
+                    
+                    {leave.duration_type === 'partial_day' && leave.start_time && leave.end_time && (
+                      <View style={styles.timeRow}>
+                        <Clock size={16} color={isDark ? '#9CA3AF' : '#6B7280'} />
+                        <Text style={styles.timeText}>
+                          {new Date(leave.start_time).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}{' '}
+                          -{' '}
+                          {new Date(leave.end_time).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </Text>
+                      </View>
+                    )}
+
+                    {leave.is_half_day && (
+                      <View style={styles.halfDayBadge}>
+                        <Text style={styles.halfDayText}>
+                          Half Day ({leave.half_day_period || 'morning'})
+                        </Text>
+                      </View>
+                    )}
                   </View>
-                </View>
 
-                <View style={styles.dateContainer}>
-                  <Calendar size={16} color={isDark ? '#9CA3AF' : '#6B7280'} />
-                  <Text style={styles.dateText}>
-                    {formatDate(leave.start_date)} - {formatDate(leave.end_date)}
-                  </Text>
-                </View>
-
-                {leave.duration_type === 'partial_day' && leave.start_time && leave.end_time && (
-                  <View style={styles.timeContainer}>
-                    <Clock size={16} color={isDark ? '#9CA3AF' : '#6B7280'} />
-                    <Text style={styles.timeText}>
-                      {new Date(leave.start_time).toLocaleTimeString([], {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}{' '}
-                      -{' '}
-                      {new Date(leave.end_time).toLocaleTimeString([], {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
+                  {leave.reason && (
+                    <Text style={styles.reasonText} numberOfLines={2}>
+                      {leave.reason}
                     </Text>
+                  )}
+
+                  <View style={styles.leaveCardFooter}>
+                    <View style={styles.daysInfo}>
+                      <Text style={styles.daysLabel}>Duration:</Text>
+                      <Text style={styles.daysValue}>
+                        {leave.days_used || leave.total_days || 0} day{leave.days_used !== 1 ? 's' : ''}
+                      </Text>
+                    </View>
+                    <ChevronRight size={20} color={isDark ? '#9CA3AF' : '#6B7280'} />
                   </View>
-                )}
-
-                <Text style={styles.reasonText} numberOfLines={2}>
-                  {leave.reason}
-                </Text>
-
-                <View style={styles.leaveCardFooter}>
-                  <Text style={styles.daysText}>
-                    {leave.days_used || leave.total_days || 0} days
-                  </Text>
-                  <ChevronRight size={20} color={isDark ? '#9CA3AF' : '#6B7280'} />
-                </View>
-              </TouchableOpacity>
-            ))
+                </TouchableOpacity>
+              ))}
+            </View>
           ) : (
             <View style={styles.emptyState}>
               <FileText size={48} color={isDark ? '#374151' : '#D1D5DB'} />
-              <Text style={styles.emptyStateText}>No leave requests found</Text>
+              <Text style={styles.emptyStateText}>
+                {filter !== 'all' 
+                  ? `No ${filter} leave requests` 
+                  : 'No leave requests found'
+                }
+              </Text>
               <Text style={styles.emptyStateSubtext}>
                 {filter !== 'all'
-                  ? `No ${filter} leave requests`
-                  : 'Request your first time off by tapping the button above'}
+                  ? `Try changing the filter or create a new request`
+                  : 'Create your first leave request by tapping the + button above'
+                }
               </Text>
+              {filter !== 'all' && (
+                <TouchableOpacity
+                  style={styles.clearFilterButton}
+                  onPress={() => setFilter('all')}
+                >
+                  <Text style={styles.clearFilterButtonText}>Show All Leaves</Text>
+                </TouchableOpacity>
+              )}
+              {filter === 'all' && (
+                <TouchableOpacity
+                  style={styles.createFirstButton}
+                  onPress={() => router.push('/pages/time-off/new-request')}
+                >
+                  <Text style={styles.createFirstButtonText}>Create First Request</Text>
+                </TouchableOpacity>
+              )}
             </View>
           )}
         </View>
+
+        {/* Footer Spacing */}
+        <View style={styles.footer} />
       </ScrollView>
     </>
   );
@@ -296,74 +428,151 @@ function createStyles(theme: string) {
     },
     header: {
       flexDirection: 'row',
-      justifyContent: 'space-between',
       alignItems: 'center',
       padding: 20,
       paddingTop: Platform.OS === 'ios' ? 60 : (StatusBar.currentHeight || 20) + 20,
+      gap: 12,
+    },
+    backButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      justifyContent: 'center',
+      alignItems: 'center',
+      backgroundColor: isDark ? '#1F2937' : '#E5E7EB',
+    },
+    headerContent: {
+      flex: 1,
     },
     headerTitle: {
-      fontSize: 32,
+      fontSize: 28,
       fontWeight: '700',
       color: isDark ? '#F9FAFB' : '#111827',
       marginBottom: 4,
     },
     headerSubtitle: {
-      fontSize: 16,
+      fontSize: 14,
       color: isDark ? '#9CA3AF' : '#6B7280',
     },
     newRequestButton: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
       backgroundColor: '#2563EB',
-      paddingHorizontal: 16,
-      paddingVertical: 10,
-      borderRadius: 12,
+      justifyContent: 'center',
+      alignItems: 'center',
     },
-    newRequestButtonText: {
-      color: '#FFFFFF',
-      fontWeight: '600',
-      fontSize: 14,
-    },
-    filterSection: {
-      paddingHorizontal: 20,
-      marginBottom: 20,
-    },
-    filterScroll: {
+    summarySection: {
       flexDirection: 'row',
+      paddingHorizontal: 20,
+      gap: 12,
+      marginBottom: 24,
+    },
+    summaryCard: {
+      flex: 1,
+      backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
+      borderRadius: 16,
+      padding: 16,
+      alignItems: 'center',
+      ...Platform.select({
+        ios: {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.05,
+          shadowRadius: 8,
+        },
+        android: {
+          elevation: 2,
+        },
+      }),
+    },
+    summaryValue: {
+      fontSize: 24,
+      fontWeight: '800',
+      color: isDark ? '#F9FAFB' : '#111827',
+      marginBottom: 4,
+    },
+    summaryLabel: {
+      fontSize: 12,
+      color: isDark ? '#9CA3AF' : '#6B7280',
+      textAlign: 'center',
+    },
+    section: {
+      paddingHorizontal: 20,
+      marginBottom: 24,
+    },
+    sectionHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 16,
+    },
+    sectionTitle: {
+      fontSize: 18,
+      fontWeight: '700',
+      color: isDark ? '#F9FAFB' : '#111827',
+    },
+    leaveCount: {
+      fontSize: 14,
+      color: isDark ? '#9CA3AF' : '#6B7280',
+      fontWeight: '500',
+    },
+    filtersContainer: {
+      paddingBottom: 8,
     },
     filterButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
       paddingHorizontal: 16,
-      paddingVertical: 8,
+      paddingVertical: 10,
       borderRadius: 20,
       marginRight: 8,
-      backgroundColor: isDark ? '#1F2937' : '#F3F4F6',
+      gap: 8,
     },
     filterButtonActive: {
-      backgroundColor: '#2563EB',
+      borderWidth: 2,
+      borderColor: '#2563EB',
     },
     filterButtonText: {
       fontSize: 14,
       color: isDark ? '#D1D5DB' : '#4B5563',
-      fontWeight: '500',
+      fontWeight: '600',
     },
     filterButtonTextActive: {
-      color: '#FFFFFF',
+      color: isDark ? '#F9FAFB' : '#111827',
+    },
+    filterBadge: {
+      backgroundColor: isDark ? '#374151' : '#E5E7EB',
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+      borderRadius: 10,
+      minWidth: 24,
+      alignItems: 'center',
+    },
+    filterBadgeText: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: isDark ? '#9CA3AF' : '#6B7280',
+    },
+    filterBadgeTextActive: {
+      color: isDark ? '#F9FAFB' : '#111827',
     },
     leavesList: {
-      paddingHorizontal: 20,
+      gap: 12,
     },
     leaveCard: {
       backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
       borderRadius: 16,
       padding: 16,
-      marginBottom: 12,
       ...Platform.select({
         ios: {
           shadowColor: '#000',
           shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: 0.1,
+          shadowOpacity: 0.05,
           shadowRadius: 8,
         },
         android: {
-          elevation: 3,
+          elevation: 2,
         },
       }),
     },
@@ -371,11 +580,14 @@ function createStyles(theme: string) {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      marginBottom: 12,
+      marginBottom: 16,
     },
-    leaveType: {
+    leaveTypeBadge: {
       flexDirection: 'row',
       alignItems: 'center',
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 12,
       gap: 8,
     },
     typeIndicator: {
@@ -384,40 +596,58 @@ function createStyles(theme: string) {
       borderRadius: 4,
     },
     leaveTypeText: {
-      fontSize: 16,
+      fontSize: 14,
       fontWeight: '600',
       color: isDark ? '#F9FAFB' : '#111827',
       textTransform: 'capitalize',
     },
-    leaveStatus: {
+    statusBadge: {
       flexDirection: 'row',
       alignItems: 'center',
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 12,
       gap: 6,
     },
     statusText: {
       fontSize: 12,
-      fontWeight: '500',
+      fontWeight: '600',
       textTransform: 'capitalize',
     },
-    dateContainer: {
+    dateSection: {
+      gap: 8,
+      marginBottom: 12,
+    },
+    dateRow: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 8,
-      marginBottom: 8,
     },
     dateText: {
       fontSize: 14,
       color: isDark ? '#9CA3AF' : '#6B7280',
+      fontWeight: '500',
     },
-    timeContainer: {
+    timeRow: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 8,
-      marginBottom: 12,
     },
     timeText: {
       fontSize: 14,
       color: isDark ? '#9CA3AF' : '#6B7280',
+    },
+    halfDayBadge: {
+      alignSelf: 'flex-start',
+      backgroundColor: isDark ? '#374151' : '#F3F4F6',
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 12,
+    },
+    halfDayText: {
+      fontSize: 12,
+      color: isDark ? '#D1D5DB' : '#4B5563',
+      fontWeight: '500',
     },
     reasonText: {
       fontSize: 14,
@@ -429,30 +659,69 @@ function createStyles(theme: string) {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
+      paddingTop: 12,
       borderTopWidth: 1,
       borderTopColor: isDark ? '#374151' : '#F3F4F6',
-      paddingTop: 12,
     },
-    daysText: {
+    daysInfo: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    daysLabel: {
       fontSize: 14,
-      fontWeight: '500',
       color: isDark ? '#9CA3AF' : '#6B7280',
+    },
+    daysValue: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: isDark ? '#F9FAFB' : '#111827',
     },
     emptyState: {
       padding: 40,
       alignItems: 'center',
+      backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
+      borderRadius: 16,
     },
     emptyStateText: {
       fontSize: 18,
-      fontWeight: '600',
+      fontWeight: '700',
       color: isDark ? '#D1D5DB' : '#374151',
       marginTop: 16,
       marginBottom: 8,
+      textAlign: 'center',
     },
     emptyStateSubtext: {
       fontSize: 14,
       color: isDark ? '#9CA3AF' : '#6B7280',
       textAlign: 'center',
+      marginBottom: 16,
+      lineHeight: 20,
+    },
+    clearFilterButton: {
+      backgroundColor: isDark ? '#374151' : '#F3F4F6',
+      paddingHorizontal: 20,
+      paddingVertical: 10,
+      borderRadius: 12,
+    },
+    clearFilterButtonText: {
+      color: isDark ? '#D1D5DB' : '#4B5563',
+      fontWeight: '600',
+      fontSize: 14,
+    },
+    createFirstButton: {
+      backgroundColor: '#2563EB',
+      paddingHorizontal: 20,
+      paddingVertical: 10,
+      borderRadius: 12,
+    },
+    createFirstButtonText: {
+      color: '#FFFFFF',
+      fontWeight: '600',
+      fontSize: 14,
+    },
+    footer: {
+      height: 40,
     },
   });
 }

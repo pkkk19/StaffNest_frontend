@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Modal,
   View,
@@ -11,12 +11,17 @@ import {
   Alert,
   Platform,
   Image,
+  KeyboardAvoidingView,
+  TouchableWithoutFeedback,
+  Keyboard,
+  Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import ViewShot from 'react-native-view-shot';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import * as Clipboard from 'expo-clipboard';
+import { Pressable } from 'react-native-gesture-handler';
 
 interface AddContactModalProps {
   visible: boolean;
@@ -181,6 +186,8 @@ const AddContactModal: React.FC<AddContactModalProps> = ({
 }) => {
   const isDarkTheme = theme === 'dark';
   const [qrImageUrl, setQrImageUrl] = useState<string | null>(null);
+  const scrollViewRef = useRef<ScrollView>(null);
+  const userIdInputRef = useRef<TextInput>(null);
   
   useEffect(() => {
     if (qrCodeData?.qrCode) {
@@ -188,6 +195,17 @@ const AddContactModal: React.FC<AddContactModalProps> = ({
     }
   }, [qrCodeData]);
   
+  // Handle keyboard dismissal when tapping outside
+  
+
+  // Handle text input focus
+  const handleInputFocus = () => {
+    // Scroll to input position when focused
+    setTimeout(() => {
+      scrollViewRef.current?.scrollTo({ y: 100, animated: true });
+    }, 100);
+  };
+
   const ModalSection: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
     <View style={styles.modalSection}>
       <Text style={[styles.modalSectionTitle, isDarkTheme && styles.darkText]}>{title}</Text>
@@ -280,197 +298,215 @@ const AddContactModal: React.FC<AddContactModalProps> = ({
 
   return (
     <Modal
-      visible={visible}
-      animationType="slide"
-      transparent={true}
-      onRequestClose={onClose}
+  visible={visible}
+  animationType="slide"
+  transparent
+  presentationStyle="overFullScreen"
+  onRequestClose={onClose}
+>
+
+  <View style={[styles.modalOverlay, isDarkTheme && styles.darkModalOverlay]}>
+    <KeyboardAvoidingView
+      behavior="padding"
+keyboardVerticalOffset={0}
+
+      style={styles.keyboardAvoidingView}
     >
-      <View style={[styles.modalOverlay, isDarkTheme && styles.darkModalOverlay]}>
-        <View style={[styles.modalContainer, isDarkTheme && styles.darkModalContainer]}>
-          <View style={[styles.modalHeader, isDarkTheme && styles.darkModalHeader]}>
-            <Text style={[styles.modalTitle, isDarkTheme && styles.darkText]}>Add New Contact</Text>
-            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-              <Ionicons name="close" size={24} color={isDarkTheme ? '#F9FAFB' : '#000'} />
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView 
-            style={[styles.modalContent, isDarkTheme && styles.darkModalContent]} 
-            showsVerticalScrollIndicator={false}
-          >
-            {/* Add by User ID Section */}
-            <ModalSection title="Add by User ID">
-              <View style={styles.userIdSection}>
-                <TextInput
-                  style={[
-                    styles.userIdInput, 
-                    isDarkTheme && styles.darkUserIdInput
-                  ]}
-                  placeholder="Enter User ID"
-                  placeholderTextColor={isDarkTheme ? '#9CA3AF' : '#999'}
-                  value={userIdInput}
-                  onChangeText={onSetUserIdInput}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
-                <TouchableOpacity
-                  style={[
-                    styles.userIdButton, 
-                    addingByUserId && styles.userIdButtonDisabled,
-                    isDarkTheme && styles.darkPrimaryButton
-                  ]}
-                  onPress={onAddByUserId}
-                  disabled={addingByUserId}
-                >
-                  {addingByUserId ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <Ionicons name="send" size={16} color="#fff" />
-                  )}
-                  <Text style={styles.userIdButtonText}>
-                    {addingByUserId ? 'Sending...' : 'Send Request'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-              <TouchableOpacity
-                style={[styles.copyUserIdButton, isDarkTheme && styles.darkCopyUserIdButton]}
-                onPress={onCopyMyUserId}
-              >
-                <Ionicons name="copy" size={16} color="#007AFF" />
-                <Text style={styles.copyUserIdText}>Copy My User ID</Text>
+          <View style={[styles.modalContainerInner, isDarkTheme && styles.darkModalContainer]}>
+            <View style={[styles.modalHeader, isDarkTheme && styles.darkModalHeader]}>
+              <Text style={[styles.modalTitle, isDarkTheme && styles.darkText]}>Add New Contact</Text>
+              <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+                <Ionicons name="close" size={24} color={isDarkTheme ? '#F9FAFB' : '#000'} />
               </TouchableOpacity>
-            </ModalSection>
+            </View>
 
-            {/* COMMENTED OUT: Scan QR Code Option */}
-            {/* <ModalSection title="Scan QR Code">
-              <ModalOption
-                icon={<Ionicons name="scan" size={24} color="#007AFF" />}
-                title="Scan QR Code"
-                description="Scan a friend's QR code to add them"
-                onPress={onScanQRCode}
-              />
-            </ModalSection> */}
+            <ScrollView 
+              ref={scrollViewRef}
+              style={[styles.modalContent, isDarkTheme && styles.darkModalContent]} 
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="none"
 
-            {/* COMMENTED OUT: Search Colleagues */}
-            {/* <ModalSection title="Search Colleagues">
-              <ModalOption
-                icon={<Ionicons name="search" size={24} color="#007AFF" />}
-                title="Search Company Directory"
-                description="Find and add people from your company"
-                onPress={onClose}
-              />
-            </ModalSection> */}
-
-            {/* COMMENTED OUT: QR Code Section */}
-            {/* <ModalSection title="QR Code">
-              {qrCodeData ? (
-                <View style={[styles.qrSection, isDarkTheme && styles.darkQrSection]}>
-                  <ViewShot ref={viewShotRef} options={{ format: 'png', quality: 1.0 }}>
-                    <View style={styles.qrCodeContainer}>
-                      {renderQRCode()}
-                    </View>
-                  </ViewShot>
-                  
-                  <View style={styles.qrActions}>
-                    <TouchableOpacity 
-                      style={[styles.secondaryButton, isDarkTheme && styles.darkSecondaryButton]} 
-                      onPress={onDownloadQRCode}
-                    >
-                      <Ionicons name="download" size={16} color="#007AFF" />
-                      <Text style={[styles.secondaryButtonText, isDarkTheme && styles.darkSecondaryButtonText]}>
-                        Save QR
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity 
-                      style={[styles.secondaryButton, isDarkTheme && styles.darkSecondaryButton]} 
-                      onPress={onShareQRCode}
-                    >
-                      <Ionicons name="share" size={16} color="#007AFF" />
-                      <Text style={[styles.secondaryButtonText, isDarkTheme && styles.darkSecondaryButtonText]}>
-                        Share
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                  
-                  {/* Alternative text-based QR code */}
-                  {/* <View style={{ marginTop: 16 }}>
-                    <Text style={[styles.modalSectionTitle, isDarkTheme && styles.darkText, { marginBottom: 8 }]}>
-                      Alternative (Text Version):
-                    </Text>
-                    <TextQRCode value={qrCodeData.qrCode} size={150} />
-                  </View>
-                </View>
-              ) : (
-                <ModalOption
-                  icon={
-                    generatingQR ? (
-                      <ActivityIndicator size="small" color="#007AFF" />
+            >
+              {/* Add by User ID Section */}
+              <ModalSection title="Add by User ID">
+                <View style={styles.userIdSection}>
+                  <TextInput
+                    ref={userIdInputRef}
+                    style={[
+                      styles.userIdInput, 
+                      isDarkTheme && styles.darkUserIdInput
+                    ]}
+                    placeholder="Paste User ID  here"
+                    placeholderTextColor={isDarkTheme ? '#9CA3AF' : '#999'}
+                    value={userIdInput}
+                    onChangeText={onSetUserIdInput}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    keyboardType="default"
+                    returnKeyType="default"
+                  />
+                  <TouchableOpacity
+                    style={[
+                      styles.userIdButton, 
+                      addingByUserId && styles.userIdButtonDisabled,
+                      isDarkTheme && styles.darkPrimaryButton
+                    ]}
+                    onPress={onAddByUserId}
+                    disabled={addingByUserId}
+                  >
+                    {addingByUserId ? (
+                      <ActivityIndicator size="small" color="#fff" />
                     ) : (
-                      <Ionicons name="qr-code" size={24} color="#007AFF" />
-                    )
-                  }
-                  title={generatingQR ? 'Generating QR Code...' : 'Generate My QR Code'}
-                  description="Create a QR code that others can scan to add you"
-                  onPress={onGenerateQRCode}
-                  disabled={generatingQR}
-                />
-              )}
-            </ModalSection> */}
-
-            {/* COMMENTED OUT: Invite Link Section */}
-            {/* <ModalSection title="Invite Link">
-              {inviteLink ? (
-                <View style={[styles.inviteSection, isDarkTheme && styles.darkInviteSection]}>
-                  <View style={[styles.inviteLinkContainer, isDarkTheme && styles.darkInviteLinkContainer]}>
-                    <Text style={styles.inviteLink} numberOfLines={1}>{inviteLink}</Text>
-                  </View>
-                  <View style={styles.inviteActions}>
-                    <TouchableOpacity 
-                      style={[styles.secondaryButton, isDarkTheme && styles.darkSecondaryButton]} 
-                      onPress={onCopyInviteLink}
-                    >
-                      <Ionicons name="copy" size={16} color="#007AFF" />
-                      <Text style={[styles.secondaryButtonText, isDarkTheme && styles.darkSecondaryButtonText]}>
-                        Copy
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity 
-                      style={[styles.secondaryButton, isDarkTheme && styles.darkSecondaryButton]} 
-                      onPress={onShareInviteLink}
-                    >
-                      <Ionicons name="share" size={16} color="#007AFF" />
-                      <Text style={[styles.secondaryButtonText, isDarkTheme && styles.darkSecondaryButtonText]}>
-                        Share
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
+                      <Ionicons name="send" size={16} color="#fff" />
+                    )}
+                    <Text style={styles.userIdButtonText}>
+                      {addingByUserId ? 'Sending...' : 'Send Request'}
+                    </Text>
+                  </TouchableOpacity>
                 </View>
-              ) : (
-                <ModalOption
-                  icon={<Ionicons name="link" size={24} color="#007AFF" />}
-                  title="Create Invite Link"
-                  description="Generate a link to share with colleagues"
-                  onPress={onGenerateInviteLink}
-                />
-              )}
-            </ModalSection> */}
+                <TouchableOpacity
+                  style={[styles.copyUserIdButton, isDarkTheme && styles.darkCopyUserIdButton]}
+                  onPress={onCopyMyUserId}
+                >
+                  <Ionicons name="copy" size={16} color="#007AFF" />
+                  <Text style={styles.copyUserIdText}>Copy My User ID</Text>
+                </TouchableOpacity>
+              </ModalSection>
 
-            {/* Pending Requests */}
-            <ModalSection title="Pending Requests">
-              <ModalOption
-                icon={<Ionicons name="mail" size={24} color="#007AFF" />}
-                title="View Friend Requests"
-                description={
-                  pendingRequestsCount > 0 
-                    ? `${pendingRequestsCount} pending requests` 
-                    : 'No pending requests'
-                }
-                onPress={onNavigateToRequests}
-              />
-            </ModalSection>
-          </ScrollView>
-        </View>
-      </View>
+                  {/* COMMENTED OUT: Scan QR Code Option */}
+                  {/* <ModalSection title="Scan QR Code">
+                    <ModalOption
+                      icon={<Ionicons name="scan" size={24} color="#007AFF" />}
+                      title="Scan QR Code"
+                      description="Scan a friend's QR code to add them"
+                      onPress={onScanQRCode}
+                    />
+                  </ModalSection> */}
+
+                  {/* COMMENTED OUT: Search Colleagues */}
+                  {/* <ModalSection title="Search Colleagues">
+                    <ModalOption
+                      icon={<Ionicons name="search" size={24} color="#007AFF" />}
+                      title="Search Company Directory"
+                      description="Find and add people from your company"
+                      onPress={onClose}
+                    />
+                  </ModalSection> */}
+
+                  {/* COMMENTED OUT: QR Code Section */}
+                  {/* <ModalSection title="QR Code">
+                    {qrCodeData ? (
+                      <View style={[styles.qrSection, isDarkTheme && styles.darkQrSection]}>
+                        <ViewShot ref={viewShotRef} options={{ format: 'png', quality: 1.0 }}>
+                          <View style={styles.qrCodeContainer}>
+                            {renderQRCode()}
+                          </View>
+                        </ViewShot>
+                        
+                        <View style={styles.qrActions}>
+                          <TouchableOpacity 
+                            style={[styles.secondaryButton, isDarkTheme && styles.darkSecondaryButton]} 
+                            onPress={onDownloadQRCode}
+                          >
+                            <Ionicons name="download" size={16} color="#007AFF" />
+                            <Text style={[styles.secondaryButtonText, isDarkTheme && styles.darkSecondaryButtonText]}>
+                              Save QR
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity 
+                            style={[styles.secondaryButton, isDarkTheme && styles.darkSecondaryButton]} 
+                            onPress={onShareQRCode}
+                          >
+                            <Ionicons name="share" size={16} color="#007AFF" />
+                            <Text style={[styles.secondaryButtonText, isDarkTheme && styles.darkSecondaryButtonText]}>
+                              Share
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                        
+                        <View style={{ marginTop: 16 }}>
+                          <Text style={[styles.modalSectionTitle, isDarkTheme && styles.darkText, { marginBottom: 8 }]}>
+                            Alternative (Text Version):
+                          </Text>
+                          <TextQRCode value={qrCodeData.qrCode} size={150} />
+                        </View>
+                      </View>
+                    ) : (
+                      <ModalOption
+                        icon={
+                          generatingQR ? (
+                            <ActivityIndicator size="small" color="#007AFF" />
+                          ) : (
+                            <Ionicons name="qr-code" size={24} color="#007AFF" />
+                          )
+                        }
+                        title={generatingQR ? 'Generating QR Code...' : 'Generate My QR Code'}
+                        description="Create a QR code that others can scan to add you"
+                        onPress={onGenerateQRCode}
+                        disabled={generatingQR}
+                      />
+                    )}
+                  </ModalSection> */}
+
+                  {/* COMMENTED OUT: Invite Link Section */}
+                  {/* <ModalSection title="Invite Link">
+                    {inviteLink ? (
+                      <View style={[styles.inviteSection, isDarkTheme && styles.darkInviteSection]}>
+                        <View style={[styles.inviteLinkContainer, isDarkTheme && styles.darkInviteLinkContainer]}>
+                          <Text style={styles.inviteLink} numberOfLines={1}>{inviteLink}</Text>
+                        </View>
+                        <View style={styles.inviteActions}>
+                          <TouchableOpacity 
+                            style={[styles.secondaryButton, isDarkTheme && styles.darkSecondaryButton]} 
+                            onPress={onCopyInviteLink}
+                          >
+                            <Ionicons name="copy" size={16} color="#007AFF" />
+                            <Text style={[styles.secondaryButtonText, isDarkTheme && styles.darkSecondaryButtonText]}>
+                              Copy
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity 
+                            style={[styles.secondaryButton, isDarkTheme && styles.darkSecondaryButton]} 
+                            onPress={onShareInviteLink}
+                          >
+                            <Ionicons name="share" size={16} color="#007AFF" />
+                            <Text style={[styles.secondaryButtonText, isDarkTheme && styles.darkSecondaryButtonText]}>
+                              Share
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ) : (
+                      <ModalOption
+                        icon={<Ionicons name="link" size={24} color="#007AFF" />}
+                        title="Create Invite Link"
+                        description="Generate a link to share with colleagues"
+                        onPress={onGenerateInviteLink}
+                      />
+                    )}
+                  </ModalSection> */}
+
+                  {/* Pending Requests */}
+                  <ModalSection title="Pending Requests">
+                    <ModalOption
+                      icon={<Ionicons name="mail" size={24} color="#007AFF" />}
+                      title="View Friend Requests"
+                      description={
+                        pendingRequestsCount > 0 
+                          ? `${pendingRequestsCount} pending requests` 
+                          : 'No pending requests'
+                      }
+                      onPress={onNavigateToRequests}
+                    />
+                  </ModalSection>
+                  
+                  {/* Add some extra space at the bottom for keyboard */}
+                  <View style={styles.bottomSpacer} />
+                </ScrollView>
+              </View>
+          </KeyboardAvoidingView>
+          </View>
     </Modal>
   );
 };
@@ -481,14 +517,26 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'flex-end',
   },
+  modalContainerInner: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    minHeight: 400,
+  },
   darkModalOverlay: {
     backgroundColor: 'rgba(0, 0, 0, 0.8)',
+  },
+  keyboardAvoidingView: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    width: '100%',
   },
   modalContainer: {
     backgroundColor: '#fff',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     maxHeight: '90%',
+    minHeight: 400,
   },
   darkModalContainer: {
     backgroundColor: '#111827',
@@ -587,6 +635,7 @@ const styles = StyleSheet.create({
     marginRight: 8,
     fontSize: 16,
     color: '#000',
+    minHeight: 48,
   },
   darkUserIdInput: {
     backgroundColor: '#1F2937',
@@ -714,6 +763,10 @@ const styles = StyleSheet.create({
   },
   darkSecondaryButtonText: {
     color: '#60A5FA',
+  },
+  // Bottom spacer for keyboard
+  bottomSpacer: {
+    height: 100,
   },
 });
 
