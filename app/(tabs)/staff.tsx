@@ -1,7 +1,8 @@
 import { View, Text, ScrollView, StyleSheet, TextInput, Platform, TouchableOpacity, ActivityIndicator, RefreshControl, Alert, Image } from 'react-native';
 import { Search, Plus, User, Phone, Mail, Users, Building, AlertCircle } from 'lucide-react-native';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { router } from 'expo-router';
+import { useFocusEffect } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -39,6 +40,20 @@ export default function Staff() {
   // Check if user is admin and has company
   const isAdmin = user?.role === 'admin';
   const hasCompany = !!user?.company_id;
+
+  useFocusEffect(
+    useCallback(() => {
+      if (isAuthenticated) {
+        checkAccessAndLoadStaff();
+      }
+      
+      // Optional: Cleanup function
+      return () => {
+        // Cleanup if needed when screen loses focus
+      };
+    }, [isAuthenticated, user?.company_id, user?.role]) // Add dependencies
+  );
+
 
   useEffect(() => {
     if (isAuthenticated) {

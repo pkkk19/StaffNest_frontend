@@ -402,10 +402,13 @@ useEffect(() => {
   return (
     <View style={{ flex: 1, backgroundColor: theme === 'dark' ? '#111827' : '#F9FAFB' }}>
       <CompanyHeader
-        title="Company Information"
+        title="Company INFO"
         isEditing={isEditing}
         loading={loading}
-        onBack={() => router.back()}
+        onBack={() => {
+          console.log('Going back from CompanyInfo');
+          router.back();
+        }}
         onEdit={() => setIsEditing(true)}
         onSave={handleSave}
       />

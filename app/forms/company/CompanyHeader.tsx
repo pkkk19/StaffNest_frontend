@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { ArrowLeft, Save } from 'lucide-react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 
@@ -23,9 +23,29 @@ export default function CompanyHeader({
   const { theme } = useTheme();
   const styles = createStyles(theme);
 
+  const handleBackPress = () => {
+    console.log('Back button pressed');
+    onBack?.();
+  };
+
+  const handleEditPress = () => {
+    console.log('Edit button pressed');
+    onEdit?.();
+  };
+
+  const handleSavePress = () => {
+    console.log('Save button pressed');
+    onSave?.();
+  };
+
   return (
     <View style={styles.header}>
-      <TouchableOpacity style={styles.backButton} onPress={onBack}>
+      <TouchableOpacity 
+        style={styles.backButton} 
+        onPress={handleBackPress}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        activeOpacity={0.6}
+      >
         <ArrowLeft size={24} color={theme === 'dark' ? '#F9FAFB' : '#111827'} />
       </TouchableOpacity>
       
@@ -35,8 +55,10 @@ export default function CompanyHeader({
         {isEditing ? (
           <TouchableOpacity 
             style={[styles.saveButton, loading && styles.saveButtonDisabled]} 
-            onPress={onSave}
+            onPress={handleSavePress}
             disabled={loading}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            activeOpacity={0.6}
           >
             <Save size={20} color="#FFFFFF" />
             <Text style={styles.saveButtonText}>
@@ -44,7 +66,12 @@ export default function CompanyHeader({
             </Text>
           </TouchableOpacity>
         ) : (
-          <TouchableOpacity style={styles.editButton} onPress={onEdit}>
+          <TouchableOpacity 
+            style={styles.editButton} 
+            onPress={handleEditPress}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            activeOpacity={0.6}
+          >
             <Text style={styles.editButtonText}>Edit</Text>
           </TouchableOpacity>
         )}
@@ -58,14 +85,21 @@ const createStyles = (theme: string) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 20,
-    paddingTop: 60,
+    paddingHorizontal: 20,
+    paddingVertical: Platform.OS === 'ios' ? 60 : 20,
+    paddingTop: Platform.OS === 'ios' ? 60 : 30,
     backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: theme === 'dark' ? '#374151' : '#E5E7EB',
+    minHeight: 80,
   },
   backButton: {
-    padding: 4,
+    padding: 8,
+    minWidth: 40,
+    minHeight: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
   },
   title: {
     fontSize: 20,
@@ -74,16 +108,21 @@ const createStyles = (theme: string) => StyleSheet.create({
     flex: 1,
     textAlign: 'center',
     marginLeft: -40,
+    marginRight: -40,
   },
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
+    minWidth: 60,
+    justifyContent: 'flex-end',
   },
   editButton: {
     backgroundColor: '#2563EB',
     paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 6,
+    paddingVertical: 10,
+    borderRadius: 8,
+    minHeight: 40,
+    justifyContent: 'center',
   },
   editButtonText: {
     color: '#FFFFFF',
@@ -95,12 +134,15 @@ const createStyles = (theme: string) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 6,
+    paddingVertical: 10,
+    borderRadius: 8,
     gap: 6,
+    minHeight: 40,
+    justifyContent: 'center',
   },
   saveButtonDisabled: {
     backgroundColor: '#9CA3AF',
+    opacity: 0.6,
   },
   saveButtonText: {
     color: '#FFFFFF',

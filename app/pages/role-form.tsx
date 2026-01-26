@@ -10,13 +10,15 @@ import {
   Switch, 
   Modal, 
   KeyboardAvoidingView, 
-  Platform 
+  Platform,
+  ActivityIndicator
 } from 'react-native';
 import { useState, useEffect, useRef } from 'react';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useAuth } from '@/contexts/AuthContext'; // Add this import
 import { rolesAPI, staffAPI, companiesAPI } from '@/services/api';
-import { ArrowLeft, Plus, Trash2, Users, Clock, MapPin, Calendar, Clock4 } from 'lucide-react-native';
+import { ArrowLeft, Plus, Trash2, Users, Clock, MapPin, Calendar, Clock4, Briefcase } from 'lucide-react-native';
 import { Role, RoleShift } from '../types/roles';
 import { StaffModal } from '@/components/modals/StaffModal';
 import { LocationModal } from '@/components/modals/LocationModal';
@@ -59,6 +61,7 @@ const DAYS_OF_WEEK = [
 
 export default function RoleForm() {
   const { theme } = useTheme();
+  const { user } = useAuth(); // Get user from auth context
   const { id } = useLocalSearchParams<{ id?: string }>();
   const isEdit = !!id;
   const styles = createStyles(theme);
@@ -91,6 +94,7 @@ export default function RoleForm() {
   const [staffList, setStaffList] = useState<StaffMember[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
+  const [checkingCompany, setCheckingCompany] = useState(true);
 
   // Shift form state
   const [currentShift, setCurrentShift] = useState<Partial<RoleShift> & { index?: number }>({
@@ -110,6 +114,89 @@ export default function RoleForm() {
 
   // Refs for tracking modal state
   const isModalOpen = useRef(false);
+
+  // Check company on component mount
+  useEffect(() => {
+    const checkCompanyExists = async () => {
+      if (!user?.company_id) {
+        console.log('No company_id found in user data, redirecting to company setup');
+        Alert.alert(
+          'Company Setup Required',
+          'You need to set up a company before creating roles.',
+          [
+            {
+              text: 'Set Up Company',
+              onPress: () => {
+                router.replace('/forms/company-setup');
+              }
+            }
+          ],
+          { cancelable: false }
+        );
+        setCheckingCompany(false);
+        return false;
+      }
+
+      try {
+        // Verify company actually exists
+        const companyResponse = await companiesAPI.getMyCompany();
+        
+        if (!companyResponse.data) {
+          Alert.alert(
+            'Company Not Found',
+            'Your company setup seems incomplete. Please set up your company first.',
+            [
+              {
+                text: 'Set Up Company',
+                onPress: () => {
+                  router.replace('/forms/company-setup');
+                }
+              }
+            ],
+            { cancelable: false }
+          );
+          return false;
+        }
+        
+        console.log('Company verified:', companyResponse.data.name);
+        return true;
+      } catch (error: any) {
+        console.error('Error verifying company:', error);
+        
+        if (error.response?.status === 404 || error.message?.includes('company')) {
+          Alert.alert(
+            'Company Setup Required',
+            'Please set up your company to create roles.',
+            [
+              {
+                text: 'Set Up Company',
+                onPress: () => {
+                  router.replace('/forms/company-setup');
+                }
+              }
+            ],
+            { cancelable: false }
+          );
+        }
+        return false;
+      }
+    };
+
+    const init = async () => {
+      const hasCompany = await checkCompanyExists();
+      setCheckingCompany(false);
+      
+      if (hasCompany) {
+        // Only load data if company exists
+        if (isEdit && id) {
+          loadRole();
+        }
+        loadStaffAndLocations();
+      }
+    };
+
+    init();
+  }, [id, user]);
 
   // Close all modals
   const closeAllModals = () => {
@@ -132,13 +219,6 @@ export default function RoleForm() {
   const closeModal = () => {
     closeAllModals();
   };
-
-  useEffect(() => {
-    if (isEdit && id) {
-      loadRole();
-    }
-    loadStaffAndLocations();
-  }, [id]);
 
   const loadRole = async () => {
     try {
@@ -672,6 +752,59 @@ const loadStaffAndLocations = async () => {
     }
   }, [staffList, form.qualified_users]);
 
+  // Show loading while checking company
+  if (checkingCompany) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={theme === 'dark' ? '#3B82F6' : '#1E40AF'} />
+        <Text style={styles.loadingText}>Checking company...</Text>
+      </View>
+    );
+  }
+
+  // Show company setup prompt if no company
+  if (!user?.company_id) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <ArrowLeft size={24} color={theme === 'dark' ? '#fff' : '#000'} />
+          </TouchableOpacity>
+          <Text style={styles.title}>
+            {isEdit ? 'Edit Role' : 'Add New Role'}
+          </Text>
+        </View>
+
+        <View style={styles.emptyState}>
+          <View style={styles.emptyIconContainer}>
+            <Briefcase size={48} color="#9CA3AF" />
+          </View>
+          <Text style={styles.emptyTitle}>Company Setup Required</Text>
+          <Text style={styles.emptySubtitle}>
+            You need to set up your company before you can create or edit roles.
+          </Text>
+          <TouchableOpacity
+            style={styles.emptyButton}
+            onPress={() => router.replace('/forms/company-setup')}
+          >
+            <Plus size={18} color="#fff" />
+            <Text style={styles.emptyButtonText}>Set Up Company</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  // Show regular loading while loading form data
+  if (loading && !checkingCompany) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={theme === 'dark' ? '#3B82F6' : '#1E40AF'} />
+        <Text style={styles.loadingText}>Loading form data...</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -1070,6 +1203,72 @@ const createStyles = (theme: string) => {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
+    },
+    
+    // Loading styles
+    loadingContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      backgroundColor: isDark ? '#111827' : '#F9FAFB',
+      gap: 16,
+    },
+    loadingText: {
+      fontSize: 16,
+      color: secondaryTextColor,
+      fontWeight: '500',
+    },
+    
+    // Empty state for company setup
+    emptyState: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 48,
+      paddingHorizontal: 40,
+      marginHorizontal: 20,
+      marginTop: 20,
+      backgroundColor: isDark ? '#1F2937' : '#fff',
+      borderRadius: 16,
+      borderWidth: 2,
+      borderColor: isDark ? '#374151' : '#E5E7EB',
+      borderStyle: 'dashed',
+    },
+    emptyIconContainer: {
+      width: 80,
+      height: 80,
+      borderRadius: 40,
+      backgroundColor: isDark ? '#374151' : '#F3F4F6',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 16,
+    },
+    emptyTitle: {
+      fontSize: 20,
+      fontWeight: 'bold',
+      color: textColor,
+      marginBottom: 8,
+    },
+    emptySubtitle: {
+      fontSize: 14,
+      color: secondaryTextColor,
+      textAlign: 'center',
+      lineHeight: 20,
+      marginBottom: 24,
+    },
+    emptyButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: '#3B82F6',
+      paddingHorizontal: 20,
+      paddingVertical: 12,
+      borderRadius: 8,
+    },
+    emptyButtonText: {
+      color: '#fff',
+      fontSize: 14,
+      fontWeight: '600',
+      marginLeft: 8,
     },
     
     // Staff Management

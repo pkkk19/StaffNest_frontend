@@ -91,24 +91,6 @@ export default function CompanyInfoSection({
         isEditing={isEditing}
         onFieldChange={onFieldChange}
       />
-      
-      <InfoField
-        icon={Mail}
-        label="Email"
-        value={companyData.email || ''}
-        field="email"
-        isEditing={isEditing}
-        onFieldChange={onFieldChange}
-      />
-      
-      <InfoField
-        icon={Globe}
-        label="Website"
-        value={companyData.website || ''}
-        field="website"
-        isEditing={isEditing}
-        onFieldChange={onFieldChange}
-      />
     </View>
   );
 }

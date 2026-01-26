@@ -1,4 +1,4 @@
-// roles.tsx - Improved UI with refresh and back button
+// roles.tsx - Updated with proper company check and redirection
 import { 
   View, 
   Text, 
@@ -12,24 +12,83 @@ import {
 import { useState, useEffect, useCallback } from 'react';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useAuth } from '@/contexts/AuthContext'; // Add this import
 import { rolesAPI, companiesAPI } from '@/services/api';
 import { Plus, Edit2, Trash2, Users, Clock, ChevronLeft, Briefcase, CheckCircle, XCircle, RefreshCw } from 'lucide-react-native';
 import { Role } from '../types/roles';
 
 export default function RolesPage() {
   const { theme } = useTheme();
+  const { user } = useAuth(); // Get user from auth context
   const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const styles = createStyles(theme);
 
+  // Check if user has a company
+  useEffect(() => {
+    const checkCompany = async () => {
+      if (user && !user.company_id) {
+        Alert.alert(
+          'Company Required',
+          'You need to set up a company first to manage roles.',
+          [
+            {
+              text: 'Set Up Company',
+              onPress: () => {
+                router.replace('/forms/company-setup');
+              }
+            }
+          ],
+          { cancelable: false }
+        );
+        return false;
+      }
+      return true;
+    };
+
+    checkCompany();
+  }, [user]);
+
   const loadRoles = async () => {
     try {
+      // First check if user has company_id
+      if (!user?.company_id) {
+        console.log('No company_id found in user data');
+        Alert.alert(
+          'Company Required',
+          'You need to set up a company first to manage roles.',
+          [
+            {
+              text: 'Set Up Company',
+              onPress: () => {
+                router.replace('/forms/company-setup');
+              }
+            }
+          ],
+          { cancelable: false }
+        );
+        setLoading(false);
+        return;
+      }
+
+      // Then verify company exists
       const companyResponse = await companiesAPI.getMyCompany();
       
       if (!companyResponse.data) {
-        Alert.alert('No Company', 'You need to setup a company first');
-        router.back();
+        Alert.alert(
+          'No Company Found',
+          'Your company setup seems incomplete. Please set up your company first.',
+          [
+            {
+              text: 'Set Up Company',
+              onPress: () => {
+                router.replace('/forms/company-setup');
+              }
+            }
+          ],
+          { cancelable: false }
+        );
         return;
       }
       
@@ -37,7 +96,26 @@ export default function RolesPage() {
       setRoles(rolesResponse.data || []);
     } catch (error) {
       console.error('Error loading roles:', error);
-      Alert.alert('Error', 'Failed to load roles');
+      
+      // Check if error is due to no company
+      const err = error as any;
+      if (err.response?.status === 404 || err.message?.includes('company')) {
+        Alert.alert(
+          'Company Setup Required',
+          'Please set up your company to start managing roles.',
+          [
+            {
+              text: 'Set Up Company',
+              onPress: () => {
+                router.replace('/forms/company-setup');
+              }
+            }
+          ],
+          { cancelable: false }
+        );
+      } else {
+        Alert.alert('Error', 'Failed to load roles');
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -45,13 +123,18 @@ export default function RolesPage() {
   };
 
   useEffect(() => {
-    loadRoles();
-  }, []);
+    // Only load roles if user has a company_id
+    if (user?.company_id) {
+      loadRoles();
+    } else {
+      setLoading(false);
+    }
+  }, [user]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     loadRoles();
-  }, []);
+  }, [user]);
 
   const handleDelete = async (id: string, title: string) => {
     Alert.alert(
@@ -92,11 +175,56 @@ export default function RolesPage() {
     return `${minutes}m`;
   };
 
+  // Show loading only when checking company and loading roles
   if (loading && !refreshing) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={theme === 'dark' ? '#3B82F6' : '#1E40AF'} />
         <Text style={styles.loadingText}>Loading roles...</Text>
+      </View>
+    );
+  }
+
+  // Show company setup prompt if no company
+  if (!user?.company_id && !loading) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <View style={styles.headerTop}>
+            <TouchableOpacity 
+              style={styles.backButton}
+              onPress={() => router.back()}
+            >
+              <ChevronLeft size={24} color={theme === 'dark' ? '#fff' : '#000'} />
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>Roles Management</Text>
+            <View style={styles.headerRight}>
+              <TouchableOpacity 
+                style={styles.refreshButton}
+                onPress={() => router.replace('/forms/company-setup')}
+              >
+                <RefreshCw size={20} color={theme === 'dark' ? '#9CA3AF' : '#6B7280'} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.emptyState}>
+          <View style={styles.emptyIconContainer}>
+            <Briefcase size={48} color="#9CA3AF" />
+          </View>
+          <Text style={styles.emptyTitle}>Company Setup Required</Text>
+          <Text style={styles.emptySubtitle}>
+            You need to set up your company before you can manage roles and schedules.
+          </Text>
+          <TouchableOpacity
+            style={styles.emptyButton}
+            onPress={() => router.replace('/forms/company-setup')}
+          >
+            <Plus size={18} color="#fff" />
+            <Text style={styles.emptyButtonText}>Set Up Company</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   }
