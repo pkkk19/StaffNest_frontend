@@ -552,7 +552,7 @@ export default function AddStaff() {
       
       Alert.alert(
         t('success'), 
-        t('staffMemberAdded'),
+        `${t('staffMemberAdded')}\n\nTemporary Password: 'TempPassword123!'\n\nPlease share this password with the staff member securely.`,
         [
           { 
             text: t('ok'), 
@@ -1085,7 +1085,6 @@ export default function AddStaff() {
                   mode="date"
                   display="spinner"
                   onChange={(event, date) => handleDateChange(showDatePicker!, event, date)}
-                  minimumDate={showDatePicker === 'dateOfBirth' ? undefined : new Date()}
                   style={styles.iosPicker}
                   themeVariant={theme === 'dark' ? 'dark' : 'light'}
                 />
