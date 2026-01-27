@@ -10,7 +10,6 @@
     "newArchEnabled": true,
     "android": {
       "package": "com.hourwize.hourwize",
-      "versionCode": 2,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#FFFFFF"
